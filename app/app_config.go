@@ -64,6 +64,9 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	_ "github.com/cosmos/cosmos-sdk/x/staking" // import for side-effects
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	erc20types "github.com/cosmos/evm/x/erc20/types"
+	feemarkettypes "github.com/cosmos/evm/x/feemarket/types"
+	evmtypes "github.com/cosmos/evm/x/vm/types"
 	icatypes "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/types"
 	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 	ibcexported "github.com/cosmos/ibc-go/v10/modules/core/exported"
@@ -81,9 +84,10 @@ var (
 		{Account: nft.ModuleName},
 		{Account: ibctransfertypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: icatypes.ModuleName},
+		{Account: evmtypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}}, {Account: erc20types.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
+		{Account: feemarkettypes.ModuleName},
+		// blocked account addresses
 	}
-
-	// blocked account addresses
 	blockAccAddrs = []string{
 		authtypes.FeeCollectorName,
 		distrtypes.ModuleName,
@@ -123,6 +127,10 @@ var (
 						// ibc modules
 						ibcexported.ModuleName,
 						// chain modules
+						// cosmos evm modules
+						erc20types.ModuleName,
+						feemarkettypes.ModuleName,
+						evmtypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -131,6 +139,10 @@ var (
 						feegrant.ModuleName,
 						group.ModuleName,
 						// chain modules
+						// cosmos evm modules
+						erc20types.ModuleName,
+						feemarkettypes.ModuleName,
+						evmtypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -152,7 +164,7 @@ var (
 						slashingtypes.ModuleName,
 						govtypes.ModuleName,
 						minttypes.ModuleName,
-						genutiltypes.ModuleName,
+
 						evidencetypes.ModuleName,
 						authz.ModuleName,
 						feegrant.ModuleName,
@@ -167,6 +179,12 @@ var (
 						ibctransfertypes.ModuleName,
 						icatypes.ModuleName,
 						// chain modules
+						// cosmos evm modules
+						erc20types.ModuleName,
+						feemarkettypes.ModuleName,
+						evmtypes.ModuleName,
+						// moved down because of evm modules
+						genutiltypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
@@ -189,7 +207,7 @@ var (
 			{
 				Name: banktypes.ModuleName,
 				Config: appconfig.WrapAny(&bankmodulev1.Module{
-					BlockedModuleAccountsOverride: blockAccAddrs,
+					BlockedModuleAccountsOverride: getBlockAccAddrs(),
 				}),
 			},
 			{
@@ -267,3 +285,11 @@ var (
 		},
 	})
 )
+
+func getBlockAccAddrs() []string {
+	for _, precompile := range evmtypes.AvailableStaticPrecompiles {
+		blockAccAddrs = append(blockAccAddrs, precompile)
+	}
+
+	return blockAccAddrs
+}

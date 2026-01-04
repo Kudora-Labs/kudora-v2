@@ -15,6 +15,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	authtxconfig "github.com/cosmos/cosmos-sdk/x/auth/tx/config"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	cosmosevmkeyring "github.com/cosmos/evm/crypto/keyring"
+	ibctransferevm "github.com/cosmos/evm/x/ibc/transfer"
+	ibctransfer "github.com/cosmos/ibc-go/v10/modules/apps/transfer"
+	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 	"github.com/spf13/cobra"
 
 	"kudora/app"
@@ -33,7 +37,7 @@ func NewRootCmd() *cobra.Command {
 			depinject.Supply(log.NewNopLogger()),
 			depinject.Provide(
 				ProvideClientContext,
-			),
+			), depinject.Provide(app.ProvideMsgEthereumTxCustomGetSigner),
 		),
 		&autoCliOpts,
 		&moduleBasicManager,
@@ -81,6 +85,15 @@ func NewRootCmd() *cobra.Command {
 		moduleBasicManager[name] = module.CoreAppModuleBasicAdaptor(name, mod)
 		autoCliOpts.Modules[name] = mod
 	}
+	evmModules := app.RegisterEVM(clientCtx.Codec, clientCtx.InterfaceRegistry)
+	for name, mod := range evmModules {
+		moduleBasicManager[name] = module.CoreAppModuleBasicAdaptor(name, mod)
+		autoCliOpts.Modules[name] = mod
+	}
+
+	moduleBasicManager[ibctransfertypes.ModuleName] = ibctransferevm.AppModuleBasic{
+		AppModuleBasic: &ibctransfer.AppModuleBasic{},
+	}
 
 	initRootCmd(rootCmd, clientCtx.TxConfig, moduleBasicManager)
 
@@ -106,7 +119,7 @@ func ProvideClientContext(
 		WithInput(os.Stdin).
 		WithAccountRetriever(types.AccountRetriever{}).
 		WithHomeDir(app.DefaultNodeHome).
-		WithViper(app.Name) // env variable prefix
+		WithViper(app.Name).WithKeyringOptions(cosmosevmkeyring.Option()).WithLedgerHasProtobuf(true)
 
 	// Read the config again to overwrite the default values with the values from the config file
 	clientCtx, _ = config.ReadFromClientConfig(clientCtx)

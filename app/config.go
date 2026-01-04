@@ -19,7 +19,6 @@ const (
 	DefaultChainID = "kudora_12000-1"
 )
 
-
 // ============================================================================
 // Token Constants
 // ============================================================================
@@ -34,7 +33,7 @@ const (
 
 	// BaseDenomUnit represents the number of decimal places
 	// Set to 18 for EVM compatibility (same as Ethereum's wei)
-	BaseDenomUnit = 18
+	BaseDenomUnit int64 = 18
 )
 
 // ============================================================================
