@@ -30,6 +30,10 @@ BINARY="${BINARY:-kudorad}"
 DENOM="${DENOM:-kud}"
 BLOCK_TIME="${BLOCK_TIME:-2s}"
 
+# Cosmos SDK requires a non-empty minimum-gas-prices value.
+# For local dev we default to a low value.
+MIN_GAS_PRICES="${MIN_GAS_PRICES:-0.0001${DENOM}}"
+
 # EVM JSON-RPC configuration
 JSON_RPC_ADDRESS="${JSON_RPC_ADDRESS:-0.0.0.0:8545}"
 JSON_RPC_WS_ADDRESS="${JSON_RPC_WS_ADDRESS:-0.0.0.0:8546}"
@@ -142,6 +146,13 @@ fi
 
 # Enable API endpoints
 if [ -f "$APP_TOML" ]; then
+    # Set minimum gas prices (required by server config validation)
+    if grep -qE '^[[:space:]]*minimum-gas-prices[[:space:]]*=' "$APP_TOML"; then
+        sed -i'' -e "s/^[[:space:]]*minimum-gas-prices[[:space:]]*=.*/minimum-gas-prices = \"$MIN_GAS_PRICES\"/" "$APP_TOML"
+    else
+        echo "minimum-gas-prices = \"$MIN_GAS_PRICES\"" >> "$APP_TOML"
+    fi
+
     # Enable REST API
     sed -i'' -e 's/enable = false/enable = true/' "$APP_TOML"
     # Enable Swagger
@@ -171,6 +182,7 @@ echo ""
 # Start the node with EVM JSON-RPC enabled
 $BINARY start \
     --home "$HOME_DIR" \
+    --minimum-gas-prices "$MIN_GAS_PRICES" \
     --json-rpc.enable \
     --json-rpc.address="$JSON_RPC_ADDRESS" \
     --json-rpc.ws-address="$JSON_RPC_WS_ADDRESS" \
