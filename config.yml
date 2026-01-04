@@ -1,81 +1,112 @@
-version: 1
 validation: sovereign
-default_denom: kud
-
+version: 1
+build:
+  proto:
+    path: proto
 accounts:
   - name: alice
     coins:
-      # 1,000,000 kudos = 1,000,000 * 10^18 kud
       - 1000000000000000000000000kud
   - name: bob
     coins:
-      # 500,000 kudos
       - 500000000000000000000000kud
   - name: charlie
     coins:
-      # 100,000 kudos
       - 100000000000000000000000kud
-
-client:
-  openapi:
-    path: docs/static/openapi.json
-
 faucet:
   name: bob
   coins:
-    - 10000000000000000000000000kud # 10,000 kudos
-
-validators:
-  - name: alice
-    bonded: 100000000000000000000000kud
-  - name: validator1
-    bonded: 100000000000000000000000kud
-  - name: validator2
-    bonded: 100000000000000000000000kud
-
-# Genesis state overrides
+    - 10000000000000000000000000kud
+  host: 0.0.0.0:4500
+  rate_limit_window: 0s
+  rate_limit: 0
+client:
+  openapi:
+    path: docs/static/openapi.json
 genesis:
-  chain_id: kudora_12000-1
   app_state:
-    # Staking module configuration
-    staking:
+    feemarket:
       params:
-        bond_denom: kud
-        unbonding_time: "1814400s" # 21 days
-        max_validators: 100
-    # Minting module configuration
-    mint:
-      params:
-        mint_denom: kud
-        inflation_rate_change: "0.130000000000000000"
-        inflation_max: "0.200000000000000000"
-        inflation_min: "0.070000000000000000"
-        goal_bonded: "0.670000000000000000"
-        blocks_per_year: "6311520"
-    # Crisis module configuration
+        no_base_fee: true
+        base_fee_change_denominator: 8
+        elasticity_multiplier: 2
+        enable_height: "0"
+        base_fee: "0.0"
+        min_gas_price: "0.0"
+        min_gas_multiplier: "0.500000000000000000"
     crisis:
       constant_fee:
+        amount: "1000000000000000000000"
         denom: kud
-        amount: "1000000000000000000000" # 1000 kudos
-    # Governance module configuration
     gov:
       params:
-        min_deposit:
-          - denom: kud
-            amount: "1000000000000000000000" # 1,000 kudos
         expedited_min_deposit:
-          - denom: kud
-            amount: "2000000000000000000000" # 2,000 kudos
-        max_deposit_period: "172800s" # 2 days
-        voting_period: "172800s" # 2 days
+          - amount: "2000000000000000000000"
+            denom: kud
+        max_deposit_period: 172800s
+        min_deposit:
+          - amount: "1000000000000000000000"
+            denom: kud
         quorum: "0.334000000000000000"
         threshold: "0.500000000000000000"
         veto_threshold: "0.334000000000000000"
-    # Slashing module configuration
+        voting_period: 172800s
+    mint:
+      params:
+        blocks_per_year: "6311520"
+        goal_bonded: "0.670000000000000000"
+        inflation_max: "0.200000000000000000"
+        inflation_min: "0.070000000000000000"
+        inflation_rate_change: "0.130000000000000000"
+        mint_denom: kud
     slashing:
       params:
-        signed_blocks_window: "10000"
+        downtime_jail_duration: 600s
         min_signed_per_window: "0.050000000000000000"
-        downtime_jail_duration: "600s"
+        signed_blocks_window: "10000"
         slash_fraction_double_sign: "0.050000000000000000"
         slash_fraction_downtime: "0.000100000000000000"
+    staking:
+      params:
+        bond_denom: kud
+        max_validators: 100
+        unbonding_time: 1814400s
+  chain_id: kudora_12000-1
+default_denom: kud
+validators:
+  - name: alice
+    bonded: 1000000000000000000kud
+    app:
+      minimum-gas-prices: 0kud
+  - name: validator1
+    bonded: 100000000000000000000000kud
+    app:
+      api:
+        address: 0.0.0.0:1327
+      grpc:
+        address: 0.0.0.0:9100
+      grpc-web:
+        address: 0.0.0.0:9101
+      minimum-gas-prices: 0kud
+    config:
+      p2p:
+        laddr: 0.0.0.0:26666
+      rpc:
+        laddr: 0.0.0.0:26667
+        pprof_laddr: 0.0.0.0:6070
+  - name: validator2
+    bonded: 100000000000000000000000kud
+    app:
+      api:
+        address: 0.0.0.0:1337
+      grpc:
+        address: 0.0.0.0:9110
+      grpc-web:
+        address: 0.0.0.0:9111
+      minimum-gas-prices: 0kud
+    config:
+      p2p:
+        laddr: 0.0.0.0:26676
+      rpc:
+        laddr: 0.0.0.0:26677
+        pprof_laddr: 0.0.0.0:6080
