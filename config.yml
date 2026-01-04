@@ -23,8 +23,7 @@ client:
 faucet:
   name: bob
   coins:
-    - 5token
-    - 100000stake
+    - 10000000000000000000000000kud # 10,000 kudos
 
 validators:
   - name: alice
