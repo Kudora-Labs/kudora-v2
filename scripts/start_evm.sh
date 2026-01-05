@@ -6,8 +6,11 @@
 # for development and testing purposes.
 #
 # Usage:
-#   ./scripts/start_evm.sh           # Start with existing data
-#   ./scripts/start_evm.sh --clean   # Reset and start fresh
+#   ./scripts/start_evm.sh                 # Start with existing data
+#   ./scripts/start_evm.sh --clean         # Reset and start fresh
+#   ./scripts/start_evm.sh --fast          # Force 1s blocks for rapid testing
+#   ./scripts/start_evm.sh --dev-account   # Add a funded dev account (name: dev)
+#   ./scripts/start_evm.sh --help          # Show options
 #
 # Endpoints:
 #   - Cosmos RPC:    http://localhost:26657
@@ -29,6 +32,14 @@ HOME_DIR="${HOME_DIR:-$HOME/.kudora}"
 BINARY="${BINARY:-kudorad}"
 DENOM="${DENOM:-kud}"
 BLOCK_TIME="${BLOCK_TIME:-2s}"
+
+DEV_ACCOUNT_ENABLED=false
+DEV_ACCOUNT_NAME="${DEV_ACCOUNT_NAME:-dev}"
+DEV_KEYRING_BACKEND="${DEV_KEYRING_BACKEND:-$KEYRING}"
+
+CLEAN=false
+FAST_BLOCKS=false
+CHAIN_INITIALIZED=false
 
 # Cosmos SDK requires a non-empty minimum-gas-prices value.
 # For local dev we default to a low value.
@@ -55,6 +66,46 @@ log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step()  { echo -e "${BLUE}[STEP]${NC} $1"; }
 
+usage() {
+    cat <<EOF
+Kudora EVM development helper
+
+Flags:
+  --clean | --fresh      Remove existing data directory before start
+  --fast                 Force 1s block time
+  --dev-account          Create and fund a dev key (name: ${DEV_ACCOUNT_NAME})
+  --help                 Show this help
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --clean|--fresh)
+            CLEAN=true
+            ;;
+        --fast)
+            FAST_BLOCKS=true
+            ;;
+        --dev-account)
+            DEV_ACCOUNT_ENABLED=true
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            log_warn "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+if [ "$FAST_BLOCKS" = "true" ]; then
+    BLOCK_TIME="1s"
+fi
+
 # ============================================================================
 # Pre-flight Checks
 # ============================================================================
@@ -74,7 +125,7 @@ log_info "Binary version: $($BINARY version)"
 # Clean Start (if requested)
 # ============================================================================
 
-if [ "$1" == "--clean" ] || [ "$CLEAN" == "true" ]; then
+if [ "$CLEAN" = "true" ]; then
     log_step "Cleaning previous data..."
     rm -rf "$HOME_DIR"
     log_info "Removed $HOME_DIR"
@@ -86,6 +137,7 @@ fi
 
 if [ ! -d "$HOME_DIR/config" ]; then
     log_step "Initializing new chain..."
+    CHAIN_INITIALIZED=true
     
     # Initialize the node
     $BINARY init $MONIKER \
@@ -105,6 +157,30 @@ if [ ! -d "$HOME_DIR/config" ]; then
         --keyring-backend $KEYRING \
         --home $HOME_DIR -a)
     log_info "Validator address: $VALIDATOR_ADDR"
+
+    if [ "$DEV_ACCOUNT_ENABLED" = "true" ]; then
+        log_step "Creating dev account..."
+        if ! $BINARY keys show $DEV_ACCOUNT_NAME \
+            --keyring-backend $DEV_KEYRING_BACKEND \
+            --home $HOME_DIR >/dev/null 2>&1; then
+            $BINARY keys add $DEV_ACCOUNT_NAME \
+                --keyring-backend $DEV_KEYRING_BACKEND \
+                --home $HOME_DIR
+        else
+            log_info "Dev account already exists in keyring"
+        fi
+
+        DEV_ADDR=$($BINARY keys show $DEV_ACCOUNT_NAME \
+            --keyring-backend $DEV_KEYRING_BACKEND \
+            --home $HOME_DIR -a)
+        log_info "Dev account address: $DEV_ADDR"
+
+        if ! $BINARY genesis add-genesis-account $DEV_ADDR \
+            1000000000000000000000000000${DENOM} \
+            --home $HOME_DIR 2>/dev/null; then
+            log_warn "Dev account already present in genesis; skipping fund step"
+        fi
+    fi
     
     # Add genesis account with initial balance
     # 1,000,000 kudos = 10^24 kud (with 18 decimals)
@@ -127,6 +203,10 @@ if [ ! -d "$HOME_DIR/config" ]; then
     # Validate genesis
     $BINARY genesis validate-genesis --home $HOME_DIR
     log_info "Genesis validated successfully"
+fi
+
+if [ "$DEV_ACCOUNT_ENABLED" = "true" ] && [ "$CHAIN_INITIALIZED" = "false" ]; then
+    log_warn "Dev account flag ignored because an existing chain already exists at $HOME_DIR"
 fi
 
 # ============================================================================
