@@ -38,7 +38,7 @@ const (
 
 	// BaseDenomUnit represents the number of decimal places
 	// Set to 18 for EVM compatibility (same as Ethereum's wei)
-	BaseDenomUnit int64 = 18
+	BaseDenomUnit = 18
 )
 
 // ============================================================================
