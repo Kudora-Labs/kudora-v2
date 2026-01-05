@@ -288,9 +288,10 @@ var (
 )
 
 func getBlockAccAddrs() []string {
-	for _, precompile := range evmtypes.AvailableStaticPrecompiles {
-		blockAccAddrs = append(blockAccAddrs, precompile)
-	}
-
-	return blockAccAddrs
+	// Create a new slice combining the base blocked addresses with the static precompiles,
+	// without mutating the global blockAccAddrs slice.
+	addrs := make([]string, len(blockAccAddrs), len(blockAccAddrs)+len(evmtypes.AvailableStaticPrecompiles))
+	copy(addrs, blockAccAddrs)
+	addrs = append(addrs, evmtypes.AvailableStaticPrecompiles...)
+	return addrs
 }
