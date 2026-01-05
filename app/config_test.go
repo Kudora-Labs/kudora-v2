@@ -5,6 +5,11 @@ import (
 	"testing"
 )
 
+const (
+	// testChainID is the chain ID used for testing
+	testChainID = "kudora_12000-1"
+)
+
 // TestEVMAppOptionsThreadSafety verifies that EVMAppOptions can be called
 // concurrently from multiple goroutines without race conditions
 func TestEVMAppOptionsThreadSafety(t *testing.T) {
@@ -22,7 +27,7 @@ func TestEVMAppOptionsThreadSafety(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			defer wg.Done()
-			err := EVMAppOptions("kudora_12000-1")
+			err := EVMAppOptions(testChainID)
 			if err != nil {
 				errChan <- err
 			}
@@ -44,12 +49,12 @@ func TestEVMAppOptionsThreadSafety(t *testing.T) {
 func TestEVMAppOptionsInitializationOnce(t *testing.T) {
 	// Reset the state for this test (this is normally not needed in production)
 	// We're calling it multiple times to ensure sync.Once works correctly
-	err1 := EVMAppOptions("kudora_12000-1")
+	err1 := EVMAppOptions(testChainID)
 	if err1 != nil {
 		t.Fatalf("First call to EVMAppOptions failed: %v", err1)
 	}
 
-	err2 := EVMAppOptions("kudora_12000-1")
+	err2 := EVMAppOptions(testChainID)
 	if err2 != nil {
 		t.Fatalf("Second call to EVMAppOptions failed: %v", err2)
 	}
