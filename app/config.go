@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -120,9 +121,12 @@ var ChainsCoinInfo = map[string]evmtypes.EvmCoinInfo{
 // EVM Configuration State
 // ============================================================================
 
-// sealed prevents re-initialization of EVM configuration
-// Once sealed, any attempt to call EVMAppOptions will be a no-op
-var sealed = false
+// evmInitOnce ensures EVMAppOptions initialization happens exactly once
+// even when called from multiple goroutines concurrently
+var evmInitOnce sync.Once
+
+// evmInitErr stores any error that occurred during EVM initialization
+var evmInitErr error
 
 // ============================================================================
 // EVM Application Options
@@ -134,12 +138,20 @@ var sealed = false
 // - Token denomination registration with the SDK
 // - EVM chain configuration (gas limits, opcodes, etc.)
 // - Decimal precision settings for EVM transactions
+//
+// Thread-safe: Uses sync.Once to ensure initialization happens exactly once,
+// even when called concurrently from multiple goroutines.
 func EVMAppOptions(chainID string) error {
-	// Prevent re-initialization if already configured
-	if sealed {
-		return nil
-	}
+	// Ensure initialization happens exactly once, thread-safely
+	evmInitOnce.Do(func() {
+		evmInitErr = initEVM(chainID)
+	})
+	return evmInitErr
+}
 
+// initEVM performs the actual EVM initialization
+// This function is called exactly once via sync.Once
+func initEVM(chainID string) error {
 	// Use default chain ID if none provided
 	if chainID == "" {
 		chainID = DefaultChainID
@@ -192,8 +204,6 @@ func EVMAppOptions(chainID string) error {
 		return fmt.Errorf("failed to configure EVM: %w", err)
 	}
 
-	// Mark configuration as complete
-	sealed = true
 	return nil
 }
 
