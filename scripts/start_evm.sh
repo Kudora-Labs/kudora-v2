@@ -156,10 +156,10 @@ if [ -f "$APP_TOML" ]; then
     fi
 
     # Enable REST API
-    sed -i.bak -e 's/enable = false/enable = true/' "$APP_TOML"
+    sed -i.bak -e 's/^[[:space:]]*enable[[:space:]]*=[[:space:]]*false/enable = true/' "$APP_TOML"
     rm -f "$APP_TOML.bak"
     # Enable Swagger
-    sed -i.bak -e 's/swagger = false/swagger = true/' "$APP_TOML"
+    sed -i.bak -e 's/^[[:space:]]*swagger[[:space:]]*=[[:space:]]*false/swagger = true/' "$APP_TOML"
     rm -f "$APP_TOML.bak"
 fi
 
