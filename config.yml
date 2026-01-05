@@ -75,7 +75,7 @@ genesis:
 default_denom: kud
 validators:
   - name: alice
-    bonded: 1000000000000000000kud
+    bonded: 100000000000000000000000kud
     app:
       minimum-gas-prices: 0kud
   - name: validator1
