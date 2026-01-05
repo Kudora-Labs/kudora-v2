@@ -140,7 +140,8 @@ APP_TOML="$HOME_DIR/config/app.toml"
 
 # Set block time
 if [ -f "$CONFIG_TOML" ]; then
-    sed -i'' -e "s/timeout_commit = \".*\"/timeout_commit = \"$BLOCK_TIME\"/" "$CONFIG_TOML"
+    sed -i.bak -e "s/timeout_commit = \".*\"/timeout_commit = \"$BLOCK_TIME\"/" "$CONFIG_TOML"
+    rm -f "$CONFIG_TOML.bak"
     log_info "Block time set to $BLOCK_TIME"
 fi
 
@@ -148,15 +149,18 @@ fi
 if [ -f "$APP_TOML" ]; then
     # Set minimum gas prices (required by server config validation)
     if grep -qE '^[[:space:]]*minimum-gas-prices[[:space:]]*=' "$APP_TOML"; then
-        sed -i'' -e "s/^[[:space:]]*minimum-gas-prices[[:space:]]*=.*/minimum-gas-prices = \"$MIN_GAS_PRICES\"/" "$APP_TOML"
+        sed -i.bak -e "s/^[[:space:]]*minimum-gas-prices[[:space:]]*=.*/minimum-gas-prices = \"$MIN_GAS_PRICES\"/" "$APP_TOML"
+        rm -f "$APP_TOML.bak"
     else
         echo "minimum-gas-prices = \"$MIN_GAS_PRICES\"" >> "$APP_TOML"
     fi
 
     # Enable REST API
-    sed -i'' -e 's/enable = false/enable = true/' "$APP_TOML"
+    sed -i.bak -e 's/^[[:space:]]*enable[[:space:]]*=[[:space:]]*false/enable = true/' "$APP_TOML"
+    rm -f "$APP_TOML.bak"
     # Enable Swagger
-    sed -i'' -e 's/swagger = false/swagger = true/' "$APP_TOML"
+    sed -i.bak -e 's/^[[:space:]]*swagger[[:space:]]*=[[:space:]]*false/swagger = true/' "$APP_TOML"
+    rm -f "$APP_TOML.bak"
 fi
 
 # ============================================================================
