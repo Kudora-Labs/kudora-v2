@@ -50,7 +50,7 @@ func (app *App) registerEVMModules(appOpts servertypes.AppOptions) error {
 	coinInfoMap := map[uint64]evmtypes.EvmCoinInfo{
 		chainID: evmtypes.EvmCoinInfo{
 			Denom:         sdk.DefaultBondDenom,
-			ExtendedDenom: sdk.DefaultBondDenom,
+			ExtendedDenom: BaseDenom,
 			DisplayDenom:  sdk.DefaultBondDenom,
 			Decimals:      evmtypes.Decimals(evmtypes.DefaultEVMDecimals),
 		},

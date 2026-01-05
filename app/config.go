@@ -190,8 +190,10 @@ func initEVM(chainID string) error {
 	ethCfg := evmtypes.DefaultChainConfig(evmChainID)
 
 	coinInfo = evmtypes.EvmCoinInfo{
-		Denom:    baseDenom,    // string
-		Decimals: coinInfo.Decimals, // uint8
+		Denom:         baseDenom,           
+		ExtendedDenom: baseDenom,           // must be the same as Denom for 18 decimals
+		DisplayDenom:  DisplayDenom, 
+		Decimals:      evmtypes.Decimals(evmtypes.DefaultEVMDecimals),  
 	}
 
 	cfg := evmtypes.NewEVMConfigurator().
