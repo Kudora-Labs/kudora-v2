@@ -52,9 +52,9 @@ func (app *App) registerEVMModules(appOpts servertypes.AppOptions) error {
 			Denom:         sdk.DefaultBondDenom,
 			ExtendedDenom: sdk.DefaultBondDenom,
 			DisplayDenom:  sdk.DefaultBondDenom,
-			Decimals:      evmtypes.SixDecimals, // in line with Cosmos SDK default decimals
+			Decimals:      evmtypes.Decimals(evmtypes.DefaultEVMDecimals),
 		},
-	}
+	}	
 
 	// configure evm modules
 	if err := evmconfig.EvmAppOptionsWithConfig(
