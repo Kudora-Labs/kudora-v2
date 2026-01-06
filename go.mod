@@ -14,7 +14,7 @@ replace (
 require (
 	cosmossdk.io/api v0.9.2
 	cosmossdk.io/client/v2 v2.0.0-beta.11
-	cosmossdk.io/core v0.11.3
+	cosmossdk.io/core v0.12.0
 	cosmossdk.io/depinject v1.2.1
 	cosmossdk.io/log v1.6.1
 	cosmossdk.io/math v1.5.3
@@ -68,6 +68,7 @@ require (
 	github.com/pion/transport/v2 v2.2.1 // indirect
 	github.com/pion/transport/v3 v3.0.1 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
+	github.com/strangelove-ventures/tokenfactory v0.50.3 // indirect
 	github.com/supranational/blst v0.3.14 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
