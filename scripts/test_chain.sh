@@ -134,6 +134,7 @@ setup_chain() {
     # Get addresses
     VALIDATOR_ADDR=$($BINARY keys show "$VALIDATOR_NAME" --keyring-backend "$KEYRING" --home "$HOME_DIR" -a)
     USER_ADDR=$($BINARY keys show "$USER_NAME" --keyring-backend "$KEYRING" --home "$HOME_DIR" -a)
+    VALIDATOR_VAL_ADDR=$($BINARY keys show "$VALIDATOR_NAME" --keyring-backend "$KEYRING" --home "$HOME_DIR" --bech val -a)
     
     # Add genesis accounts
     # Validator: 1,000,000 kudos
@@ -165,6 +166,7 @@ setup_chain() {
     
     log_info "Chain setup complete"
     log_info "Validator address: $VALIDATOR_ADDR"
+    log_info "Validator operator address: $VALIDATOR_VAL_ADDR"
     log_info "Test user address: $USER_ADDR"
 }
 
@@ -358,6 +360,59 @@ test_rest_api() {
     fi
 }
 
+test_staking_delegation() {
+    log_test "Cosmos staking delegation from user to validator"
+
+    local amount="100000000000000000000${DENOM}" # 100 kud (18 decimals)
+
+    local result=$($BINARY tx staking delegate \
+        "$VALIDATOR_VAL_ADDR" \
+        "$amount" \
+        --from "$USER_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1)
+
+    local json=$(echo "$result" | sed -n '/^{/,$p')
+    local code
+    if [ -z "$json" ]; then
+        log_fail "Staking delegation failed (non-JSON response): $result"
+        return
+    fi
+
+    if ! code=$(echo "$json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Staking delegation failed (invalid JSON): $result"
+        return
+    fi
+
+    if [ "$code" != "0" ]; then
+        local raw_log=$(echo "$json" | jq -r '.raw_log // empty')
+        log_fail "Staking delegation failed with code: $code ${raw_log:+- $raw_log}"
+        return
+    fi
+
+    sleep 3
+
+    local delegation_output
+    if ! delegation_output=$($BINARY query staking delegation "$USER_ADDR" "$VALIDATOR_VAL_ADDR" --home "$HOME_DIR" --output json 2>/dev/null); then
+        log_fail "Delegation query failed"
+        return
+    fi
+
+    local delegated_amount=$(echo "$delegation_output" | jq -r '.delegation_response.balance.amount // empty' 2>/dev/null)
+
+    if [ -n "$delegated_amount" ] && [ "$delegated_amount" != "null" ]; then
+        log_success "Delegation successful: $delegated_amount $DENOM delegated to $VALIDATOR_NAME"
+    else
+        log_fail "Delegation query returned unexpected result: $delegation_output"
+    fi
+}
+
 # ============================================================================
 # Main Execution
 # ============================================================================
@@ -409,6 +464,7 @@ main() {
     
     # Transaction tests
     test_cosmos_bank_transfer
+    test_staking_delegation
     
     # Summary
     echo ""
