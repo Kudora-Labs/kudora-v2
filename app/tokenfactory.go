@@ -5,6 +5,9 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/codec"
+	"cosmossdk.io/core/appmodule"
 
 	// Token Factory imports from cosmos/tokenfactory
 	tokenfactory "github.com/cosmos/tokenfactory/x/tokenfactory"
@@ -66,4 +69,28 @@ func (app *App) registerTokenFactoryModule(appOpts servertypes.AppOptions) error
 	}
 
 	return nil
+}
+
+// RegisterTokenFactory registers the TokenFactory module for CLI.
+// This is needed because tokenfactory doesn't support depinject yet.
+func RegisterTokenFactory(cdc codec.Codec) map[string]appmodule.AppModule {
+	modules := map[string]appmodule.AppModule{
+		tokenfactorytypes.ModuleName: tokenfactory.NewAppModule(
+			tokenfactorykeeper.Keeper{},    // Empty keeper for CLI registration
+			nil,                   			// AccountKeeper not needed for CLI
+			nil,                            // BankKeeper not needed for CLI
+			nil,                            // Subspace not needed for CLI
+		),
+	}
+
+	// Register interfaces for proper encoding/decoding
+	for _, m := range modules {
+		if mr, ok := m.(interface {
+			RegisterInterfaces(codectypes.InterfaceRegistry)
+		}); ok {
+			mr.RegisterInterfaces(cdc.InterfaceRegistry())
+		}
+	}
+
+	return modules
 }
