@@ -15,7 +15,7 @@ import (
 	tokenfactorytypes "github.com/cosmos/tokenfactory/x/tokenfactory/types"
 )
 
-// Definre capabilities for Token Factory module
+// Define capabilities for Token Factory module
 var tokenFactoryCapabilities = []string{
 		tokenfactorytypes.EnableBurnFrom,
 		tokenfactorytypes.EnableForceTransfer,
