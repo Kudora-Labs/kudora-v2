@@ -186,8 +186,6 @@ func initEVM(chainID string) error {
 	}
 	ethCfg := evmtypes.DefaultChainConfig(evmChainID)
 
-	coinInfo = ChainsCoinInfo[chainID]
-
 	cfg := evmtypes.NewEVMConfigurator().
 		WithChainConfig(ethCfg).
 		WithEVMCoinInfo(coinInfo)
