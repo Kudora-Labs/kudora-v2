@@ -71,6 +71,8 @@ import (
 	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 	ibcexported "github.com/cosmos/ibc-go/v10/modules/core/exported"
 	"google.golang.org/protobuf/types/known/durationpb"
+
+	tokenfactorytypes "github.com/cosmos/tokenfactory/x/tokenfactory/types"
 )
 
 var (
@@ -87,6 +89,7 @@ var (
 		{Account: evmtypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}}, 
 		{Account: erc20types.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: feemarkettypes.ModuleName},
+		{Account: tokenfactorytypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		// blocked account addresses
 	}
 	blockAccAddrs = []string{
@@ -132,6 +135,7 @@ var (
 						erc20types.ModuleName,
 						feemarkettypes.ModuleName,
 						evmtypes.ModuleName,
+						tokenfactorytypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
 					EndBlockers: []string{
@@ -144,6 +148,7 @@ var (
 						erc20types.ModuleName,
 						feemarkettypes.ModuleName,
 						evmtypes.ModuleName,
+						tokenfactorytypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
 					// The following is mostly only needed when ModuleName != StoreKey name.
@@ -184,6 +189,7 @@ var (
 						erc20types.ModuleName,
 						feemarkettypes.ModuleName,
 						evmtypes.ModuleName,
+						tokenfactorytypes.ModuleName,
 						// moved down because of evm modules
 						genutiltypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis

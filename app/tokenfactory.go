@@ -1,0 +1,69 @@
+package app
+
+import (
+	storetypes "cosmossdk.io/store/types"
+	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+
+	// Token Factory imports from cosmos/tokenfactory
+	tokenfactory "github.com/cosmos/tokenfactory/x/tokenfactory"
+	tokenfactorykeeper "github.com/cosmos/tokenfactory/x/tokenfactory/keeper"
+	tokenfactorytypes "github.com/cosmos/tokenfactory/x/tokenfactory/types"
+)
+
+// Definre capabilities for Token Factory module
+var tokenFactoryCapabilities = []string{
+		tokenfactorytypes.EnableBurnFrom,
+		tokenfactorytypes.EnableForceTransfer,
+		tokenfactorytypes.EnableSetMetadata,
+		tokenfactorytypes.EnableCommunityPoolFeeFunding,
+}
+
+// registerTokenFactoryModule registers the Token Factory keeper and module.
+// This follows the same pattern as registerIBCModules and registerEVMModules.
+func (app *App) registerTokenFactoryModule(appOpts servertypes.AppOptions) error {
+	// Step 1: Register the store key for Token Factory
+	if err := app.RegisterStores(
+		storetypes.NewKVStoreKey(tokenfactorytypes.StoreKey),
+	); err != nil {
+		return err
+	}
+
+	// Step 2: Register params subspace for legacy param handling
+	tokenfactorysubspace := app.ParamsKeeper.Subspace(tokenfactorytypes.ModuleName)
+
+	// Step 3: Get the governance module address for authority
+	govModuleAddr, err := app.AuthKeeper.AddressCodec().BytesToString(
+		authtypes.NewModuleAddress(govtypes.ModuleName),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Step 4: Create the Token Factory keeper
+	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
+		app.appCodec,
+		app.GetKey(tokenfactorytypes.StoreKey),
+		GetMaccPerms(),
+		app.AuthKeeper,
+		app.BankKeeper,
+		app.DistrKeeper,
+		tokenFactoryCapabilities,
+		govModuleAddr,
+	)
+
+	// Step 5: Register the module
+	if err := app.RegisterModules(
+		tokenfactory.NewAppModule(
+			app.TokenFactoryKeeper,
+			app.AuthKeeper,
+			app.BankKeeper,
+			tokenfactorysubspace,
+		),
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
