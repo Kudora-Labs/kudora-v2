@@ -515,6 +515,53 @@ PY
     fi
 }
 
+test_tokenfactory_nonadmin_forbidden() {
+    log_test "Tokenfactory mint forbidden for non-admin"
+
+    if [ -z "$TOKENFACTORY_DENOM" ]; then
+        log_fail "Tokenfactory non-admin test missing denom (mint must run first)"
+        return
+    fi
+
+    local mint_amount="1000000000000000000" # 1 token
+
+    local out=$($BINARY tx tokenfactory mint "${mint_amount}${TOKENFACTORY_DENOM}" \
+        --from "$USER_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    # Check if error message contains "unauthorized" or similar
+    if echo "$out" | grep -qi "unauthorized"; then
+        log_success "Tokenfactory non-admin mint correctly rejected (unauthorized)"
+        return
+    fi
+
+    local json=$(echo "$out" | sed -n '/^{/,$p')
+    if [ -z "$json" ]; then
+        log_fail "Tokenfactory non-admin mint produced unexpected output: $out"
+        return
+    fi
+
+    local code
+    if ! code=$(echo "$json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory non-admin mint invalid JSON: $out"
+        return
+    fi
+
+    if [ "$code" = "0" ]; then
+        log_fail "Tokenfactory non-admin mint unexpectedly succeeded"
+    else
+        local raw_log=$(echo "$json" | jq -r '.raw_log // empty')
+        log_success "Tokenfactory non-admin mint correctly rejected (code $code${raw_log:+, $raw_log})"
+    fi
+}
+
 test_staking_delegation() {
     log_test "Cosmos staking delegation from user to validator"
 
@@ -622,6 +669,7 @@ main() {
     test_staking_delegation
     test_tokenfactory_mint
     test_tokenfactory_burn
+    test_tokenfactory_nonadmin_forbidden
     
     # Summary
     echo ""
