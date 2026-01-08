@@ -92,7 +92,7 @@ var (
 		{Account: feemarkettypes.ModuleName},
 		{Account: tokenfactorytypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		// blocked account addresses
-		{Account: wasmtypes.ModuleName, Permissions: []string{authtypes.Burner}}}
+		{Account: wasmtypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}}}
 	blockAccAddrs = []string{
 		authtypes.FeeCollectorName,
 		distrtypes.ModuleName,
