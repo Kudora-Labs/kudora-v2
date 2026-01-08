@@ -215,13 +215,13 @@ func New(
 		panic(err)
 	}
 
-	// register legacy modules
-	if err := app.registerIBCModules(appOpts); err != nil {
+	// Register Token Factory module early so wasm bindings can wire the keeper
+	if err := app.registerTokenFactoryModule(appOpts); err != nil {
 		panic(err)
 	}
 
-	// Register Token Factory module
-	if err := app.registerTokenFactoryModule(appOpts); err != nil {
+	// register legacy modules (includes wasm via IBC wiring)
+	if err := app.registerIBCModules(appOpts); err != nil {
 		panic(err)
 	}
 

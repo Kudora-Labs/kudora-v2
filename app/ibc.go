@@ -35,6 +35,7 @@ import (
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
 	solomachine "github.com/cosmos/ibc-go/v10/modules/light-clients/06-solomachine"
 	ibctm "github.com/cosmos/ibc-go/v10/modules/light-clients/07-tendermint"
+	bindings "github.com/cosmos/tokenfactory/x/tokenfactory/bindings"
 )
 
 // registerIBCModules register IBC keepers and non dependency inject modules.
@@ -127,7 +128,8 @@ func (app *App) registerIBCModules(appOpts servertypes.AppOptions) error {
 	ibcv2Router := ibcapi.NewRouter().
 		AddRoute(ibctransfertypes.PortID, transferStackV2)
 
-	wasmStack, err := app.registerWasmModules(appOpts)
+	wasmOpts := bindings.RegisterCustomPlugins(app.BankKeeper, &app.TokenFactoryKeeper)
+	wasmStack, err := app.registerWasmModules(appOpts, wasmOpts...)
 	if err != nil {
 		return err
 	}
