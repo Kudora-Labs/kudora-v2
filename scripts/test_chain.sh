@@ -102,6 +102,21 @@ wait_for_blocks() {
     return 1
 }
 
+ensure_wasm_artifact() {
+    local artifact="$HOME_DIR/cw20_base.wasm"
+    local url="https://github.com/CosmWasm/cw-plus/releases/download/v1.1.0/cw20_base.wasm"
+
+    if [ -f "$artifact" ]; then
+        return 0
+    fi
+
+    log_info "Fetching cw20_base.wasm for WASM tests..."
+    if ! curl -fL "$url" -o "$artifact"; then
+        log_fail "Failed to download cw20_base.wasm from $url"
+        return 1
+    fi
+}
+
 # ============================================================================
 # Setup
 # ============================================================================
@@ -316,9 +331,19 @@ test_cosmos_bank_transfer() {
         --gas-adjustment 1.5 \
         --fees 1000000000000000${DENOM} \
         -y \
-        --output json 2>/dev/null)
+        --output json 2>&1 || true)
     
-    local code=$(echo "$result" | jq -r '.code // 0')
+    local json=$(echo "$result" | sed -n '/^{/,$p')
+    if [ -z "$json" ]; then
+        log_fail "Bank transfer failed (non-JSON response): $result"
+        return
+    fi
+    
+    local code
+    if ! code=$(echo "$json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Bank transfer failed (invalid JSON): $result"
+        return
+    fi
     
     if [ "$code" == "0" ]; then
         log_success "Bank transfer submitted successfully"
@@ -330,7 +355,8 @@ test_cosmos_bank_transfer() {
         local balance=$($BINARY query bank balances "$USER_ADDR" --home "$HOME_DIR" --output json | jq -r ".balances[0].amount")
         log_info "User balance after transfer: $balance $DENOM"
     else
-        log_fail "Bank transfer failed with code: $code"
+        local raw_log=$(echo "$json" | jq -r '.raw_log // empty')
+        log_fail "Bank transfer failed with code: $code ${raw_log:+- $raw_log}"
     fi
 }
 
@@ -615,6 +641,144 @@ test_staking_delegation() {
     fi
 }
 
+test_wasm_store_and_instantiate() {
+    log_test "WASM store, instantiate, and query cw20 contract"
+    
+        # Disable errexit locally to surface detailed failures without aborting the suite
+        set +e
+
+    if ! ensure_wasm_artifact; then
+           set -e
+           return
+    fi
+
+    local store_out
+    store_out=$($BINARY tx wasm store "$HOME_DIR/cw20_base.wasm" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local store_json=$(echo "$store_out" | sed -n '/^{/,$p')
+    if [ -z "$store_json" ]; then
+        log_fail "WASM store failed (non-JSON response): $store_out"
+        return
+    fi
+
+    local store_code
+    if ! store_code=$(echo "$store_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "WASM store failed (invalid JSON): $store_out"
+        return
+    fi
+
+    if [ "$store_code" != "0" ]; then
+        local raw_log=$(echo "$store_json" | jq -r '.raw_log // empty')
+        log_fail "WASM store failed with code: $store_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    local txhash=$(echo "$store_json" | jq -r '.txhash // empty')
+    if [ -z "$txhash" ] || [ "$txhash" = "null" ]; then
+        log_fail "WASM store did not return a txhash: $store_json"
+        set -e
+        return
+    fi
+
+    sleep 3
+
+    local tx_query
+    tx_query=$($BINARY query tx "$txhash" --home "$HOME_DIR" --output json 2>/dev/null || true)
+    
+    WASM_CODE_ID=$(echo "$tx_query" | jq -r '.events[] | select(.type=="store_code") | .attributes[] | select(.key=="code_id") | .value' 2>/dev/null)
+    if [ -z "$WASM_CODE_ID" ] || [ "$WASM_CODE_ID" = "null" ]; then
+        log_fail "WASM store did not return a code_id in tx query: $tx_query"
+        set -e
+        return
+    fi
+
+    local init_msg
+    init_msg=$(cat <<EOF
+{"name":"Kudora Test Token","symbol":"KTK","decimals":6,"initial_balances":[{"address":"$USER_ADDR","amount":"1000"}]}
+EOF
+    )
+
+    local instantiate_out
+    instantiate_out=$($BINARY tx wasm instantiate "$WASM_CODE_ID" "$init_msg" \
+        --label "cw20-test" \
+        --no-admin \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local instantiate_json=$(echo "$instantiate_out" | sed -n '/^{/,$p')
+    if [ -z "$instantiate_json" ]; then
+        log_fail "WASM instantiate failed (non-JSON response): $instantiate_out"
+        return
+    fi
+
+    local instantiate_code
+    if ! instantiate_code=$(echo "$instantiate_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "WASM instantiate failed (invalid JSON): $instantiate_out"
+        return
+    fi
+
+    if [ "$instantiate_code" != "0" ]; then
+        local raw_log=$(echo "$instantiate_json" | jq -r '.raw_log // empty')
+        log_fail "WASM instantiate failed with code: $instantiate_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    local inst_txhash=$(echo "$instantiate_json" | jq -r '.txhash // empty')
+    if [ -z "$inst_txhash" ] || [ "$inst_txhash" = "null" ]; then
+        log_fail "WASM instantiate did not return a txhash: $instantiate_json"
+        set -e
+        return
+    fi
+
+    sleep 3
+
+    local inst_tx_query
+    inst_tx_query=$($BINARY query tx "$inst_txhash" --home "$HOME_DIR" --output json 2>/dev/null || true)
+    
+    WASM_CONTRACT_ADDR=$(echo "$inst_tx_query" | jq -r '.events[] | select(.type=="instantiate") | .attributes[] | select(.key=="_contract_address" or .key=="contract_address") | .value' 2>/dev/null)
+    if [ -z "$WASM_CONTRACT_ADDR" ] || [ "$WASM_CONTRACT_ADDR" = "null" ]; then
+        log_fail "WASM instantiate did not return a contract address in tx query: $inst_tx_query"
+        set -e
+        return
+    fi
+
+    sleep 2
+
+    local balance_json
+    balance_json=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$USER_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+
+    local cw20_balance=$(echo "$balance_json" | jq -r '.data.balance // empty' 2>/dev/null)
+
+    if [ "$cw20_balance" = "1000" ]; then
+        log_success "WASM cw20 instantiated successfully: balance $cw20_balance for $USER_ADDR"
+    else
+        log_fail "WASM cw20 balance query mismatch: expected 1000 got ${cw20_balance:-none}; response: $balance_json"
+    fi
+    
+        # Re-enable errexit for subsequent steps
+        set -e
+}
+
 # ============================================================================
 # Main Execution
 # ============================================================================
@@ -660,6 +824,13 @@ main() {
     test_json_rpc_block_number
     test_json_rpc_gas_price
     
+    echo ""
+    log_info "Running WASM tests..."
+    echo ""
+
+    # WASM tests
+    test_wasm_store_and_instantiate
+
     echo ""
     log_info "Running transaction tests..."
     echo ""
