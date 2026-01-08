@@ -57,6 +57,8 @@ import (
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native"
 	"github.com/spf13/cast"
 
+	tokenfactorykeeper "github.com/cosmos/tokenfactory/x/tokenfactory/keeper"
+
 	"kudora/docs"
 )
 
@@ -108,6 +110,9 @@ type App struct {
 	ICAControllerKeeper icacontrollerkeeper.Keeper
 	ICAHostKeeper       icahostkeeper.Keeper
 	TransferKeeper      ibctransferkeeper.Keeper
+
+	// token factory keeper
+	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
 	// simulation manager
 	sm                 *module.SimulationManager
@@ -212,6 +217,12 @@ func New(
 	if err := app.registerIBCModules(appOpts); err != nil {
 		panic(err)
 	}
+
+	// Register Token Factory module
+	if err := app.registerTokenFactoryModule(appOpts); err != nil {
+		panic(err)
+	} 
+	
 	if err := app.postRegisterEVMModules(); err != nil {
 		panic(err)
 	}

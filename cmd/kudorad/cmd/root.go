@@ -90,6 +90,11 @@ func NewRootCmd() *cobra.Command {
 		moduleBasicManager[name] = module.CoreAppModuleBasicAdaptor(name, mod)
 		autoCliOpts.Modules[name] = mod
 	}
+	tokenfactoryModule := app.RegisterTokenFactory(clientCtx.Codec)
+	for name, mod := range tokenfactoryModule {
+		moduleBasicManager[name] = module.CoreAppModuleBasicAdaptor(name, mod)
+		autoCliOpts.Modules[name] = mod
+	}
 
 	moduleBasicManager[ibctransfertypes.ModuleName] = ibctransferevm.AppModuleBasic{
 		AppModuleBasic: &ibctransfer.AppModuleBasic{},

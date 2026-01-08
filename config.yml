@@ -21,8 +21,8 @@ faucet:
   rate_limit_window: 0s
   rate_limit: 0
 client:
-  openapi:
-    path: docs/static/openapi.json
+  # openapi:
+  #   path: docs/static/openapi.json
 genesis:
   app_state:
     feemarket:

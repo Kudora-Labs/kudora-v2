@@ -134,6 +134,7 @@ setup_chain() {
     # Get addresses
     VALIDATOR_ADDR=$($BINARY keys show "$VALIDATOR_NAME" --keyring-backend "$KEYRING" --home "$HOME_DIR" -a)
     USER_ADDR=$($BINARY keys show "$USER_NAME" --keyring-backend "$KEYRING" --home "$HOME_DIR" -a)
+    VALIDATOR_VAL_ADDR=$($BINARY keys show "$VALIDATOR_NAME" --keyring-backend "$KEYRING" --home "$HOME_DIR" --bech val -a)
     
     # Add genesis accounts
     # Validator: 1,000,000 kudos
@@ -165,6 +166,7 @@ setup_chain() {
     
     log_info "Chain setup complete"
     log_info "Validator address: $VALIDATOR_ADDR"
+    log_info "Validator operator address: $VALIDATOR_VAL_ADDR"
     log_info "Test user address: $USER_ADDR"
 }
 
@@ -358,6 +360,261 @@ test_rest_api() {
     fi
 }
 
+test_tokenfactory_mint() {
+    log_test "Tokenfactory create denom and mint"
+
+    local subdenom="testdenom"
+
+    local create_out=$($BINARY tx tokenfactory create-denom "$subdenom" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1)
+
+    local create_json=$(echo "$create_out" | sed -n '/^{/,$p')
+    if [ -z "$create_json" ]; then
+        log_fail "Tokenfactory create-denom failed (non-JSON response): $create_out"
+        return
+    fi
+
+    local create_code
+    if ! create_code=$(echo "$create_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory create-denom failed (invalid JSON): $create_out"
+        return
+    fi
+
+    if [ "$create_code" != "0" ]; then
+        local raw_log=$(echo "$create_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory create-denom failed with code: $create_code ${raw_log:+- $raw_log}"
+        return
+    fi
+
+    sleep 2
+
+    local denoms_json=$($BINARY query tokenfactory denoms-from-creator "$VALIDATOR_ADDR" --home "$HOME_DIR" --output json 2>/dev/null)
+    local denom=$(echo "$denoms_json" | jq -r '.denoms[0] // empty')
+
+    if [ -z "$denom" ]; then
+        log_fail "Tokenfactory denoms-from-creator returned no denoms: $denoms_json"
+        return
+    fi
+
+    TOKENFACTORY_DENOM="$denom"
+
+    local mint_amount="5000000000000000000" # 5 tokens with 18 decimals
+    local mint_out=$($BINARY tx tokenfactory mint "${mint_amount}${denom}" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1)
+
+    local mint_json=$(echo "$mint_out" | sed -n '/^{/,$p')
+    if [ -z "$mint_json" ]; then
+        log_fail "Tokenfactory mint failed (non-JSON response): $mint_out"
+        return
+    fi
+
+    local mint_code
+    if ! mint_code=$(echo "$mint_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory mint failed (invalid JSON): $mint_out"
+        return
+    fi
+
+    if [ "$mint_code" != "0" ]; then
+        local raw_log=$(echo "$mint_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory mint failed with code: $mint_code ${raw_log:+- $raw_log}"
+        return
+    fi
+
+    sleep 2
+
+    local balances_json=$($BINARY query bank balances "$VALIDATOR_ADDR" --home "$HOME_DIR" --output json 2>/dev/null)
+    local minted_balance=$(echo "$balances_json" | jq -r --arg denom "$denom" '.balances[] | select(.denom==$denom) | .amount' 2>/dev/null)
+
+    if [ "$minted_balance" = "$mint_amount" ]; then
+        log_success "Tokenfactory mint successful: $minted_balance $denom to $VALIDATOR_ADDR"
+    else
+        log_fail "Tokenfactory balance mismatch: expected $mint_amount got ${minted_balance:-none}; balances: $balances_json"
+    fi
+}
+
+test_tokenfactory_burn() {
+    log_test "Tokenfactory burn reduces balance"
+
+    if [ -z "$TOKENFACTORY_DENOM" ]; then
+        log_fail "Tokenfactory burn missing denom (mint must run first)"
+        return
+    fi
+
+    local burn_amount="2000000000000000000" # burn 2 tokens
+
+    local before_json=$($BINARY query bank balances "$VALIDATOR_ADDR" --home "$HOME_DIR" --output json 2>/dev/null)
+    local before_balance=$(echo "$before_json" | jq -r --arg denom "$TOKENFACTORY_DENOM" '.balances[] | select(.denom==$denom) | .amount' 2>/dev/null)
+
+    if [ -z "$before_balance" ]; then
+        log_fail "Tokenfactory burn missing existing balance for $TOKENFACTORY_DENOM: $before_json"
+        return
+    fi
+
+    local burn_out=$($BINARY tx tokenfactory burn "${burn_amount}${TOKENFACTORY_DENOM}" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1)
+
+    local burn_json=$(echo "$burn_out" | sed -n '/^{/,$p')
+    if [ -z "$burn_json" ]; then
+        log_fail "Tokenfactory burn failed (non-JSON response): $burn_out"
+        return
+    fi
+
+    local burn_code
+    if ! burn_code=$(echo "$burn_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory burn failed (invalid JSON): $burn_out"
+        return
+    fi
+
+    if [ "$burn_code" != "0" ]; then
+        local raw_log=$(echo "$burn_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory burn failed with code: $burn_code ${raw_log:+- $raw_log}"
+        return
+    fi
+
+    sleep 2
+
+    local expected=$(BEFORE_BAL="$before_balance" BURN_AMT="$burn_amount" python3 - <<'PY'
+import os
+before = int(os.environ['BEFORE_BAL'])
+burn = int(os.environ['BURN_AMT'])
+print(before - burn)
+PY
+    )
+
+    local after_json=$($BINARY query bank balances "$VALIDATOR_ADDR" --home "$HOME_DIR" --output json 2>/dev/null)
+    local after_balance=$(echo "$after_json" | jq -r --arg denom "$TOKENFACTORY_DENOM" '.balances[] | select(.denom==$denom) | .amount' 2>/dev/null)
+
+    if [ "$after_balance" = "$expected" ]; then
+        log_success "Tokenfactory burn successful: balance $after_balance $TOKENFACTORY_DENOM (burned $burn_amount)"
+    else
+        log_fail "Tokenfactory burn mismatch: expected $expected got ${after_balance:-none}; balances: $after_json"
+    fi
+}
+
+test_tokenfactory_nonadmin_forbidden() {
+    log_test "Tokenfactory mint forbidden for non-admin"
+
+    if [ -z "$TOKENFACTORY_DENOM" ]; then
+        log_fail "Tokenfactory non-admin test missing denom (mint must run first)"
+        return
+    fi
+
+    local mint_amount="1000000000000000000" # 1 token
+
+    local out=$($BINARY tx tokenfactory mint "${mint_amount}${TOKENFACTORY_DENOM}" \
+        --from "$USER_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    # Check if error message contains "unauthorized" or similar
+    if echo "$out" | grep -qi "unauthorized"; then
+        log_success "Tokenfactory non-admin mint correctly rejected (unauthorized)"
+        return
+    fi
+
+    local json=$(echo "$out" | sed -n '/^{/,$p')
+    if [ -z "$json" ]; then
+        log_fail "Tokenfactory non-admin mint produced unexpected output: $out"
+        return
+    fi
+
+    local code
+    if ! code=$(echo "$json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory non-admin mint invalid JSON: $out"
+        return
+    fi
+
+    if [ "$code" = "0" ]; then
+        log_fail "Tokenfactory non-admin mint unexpectedly succeeded"
+    else
+        local raw_log=$(echo "$json" | jq -r '.raw_log // empty')
+        log_success "Tokenfactory non-admin mint correctly rejected (code $code${raw_log:+, $raw_log})"
+    fi
+}
+
+test_staking_delegation() {
+    log_test "Cosmos staking delegation from user to validator"
+
+    local amount="100000000000000000000${DENOM}" # 100 kud (18 decimals)
+
+    local result=$($BINARY tx staking delegate \
+        "$VALIDATOR_VAL_ADDR" \
+        "$amount" \
+        --from "$USER_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1)
+
+    local json=$(echo "$result" | sed -n '/^{/,$p')
+    local code
+    if [ -z "$json" ]; then
+        log_fail "Staking delegation failed (non-JSON response): $result"
+        return
+    fi
+
+    if ! code=$(echo "$json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Staking delegation failed (invalid JSON): $result"
+        return
+    fi
+
+    if [ "$code" != "0" ]; then
+        local raw_log=$(echo "$json" | jq -r '.raw_log // empty')
+        log_fail "Staking delegation failed with code: $code ${raw_log:+- $raw_log}"
+        return
+    fi
+
+    sleep 3
+
+    local delegation_output
+    if ! delegation_output=$($BINARY query staking delegation "$USER_ADDR" "$VALIDATOR_VAL_ADDR" --home "$HOME_DIR" --output json 2>/dev/null); then
+        log_fail "Delegation query failed"
+        return
+    fi
+
+    local delegated_amount=$(echo "$delegation_output" | jq -r '.delegation_response.balance.amount // empty' 2>/dev/null)
+
+    if [ -n "$delegated_amount" ] && [ "$delegated_amount" != "null" ]; then
+        log_success "Delegation successful: $delegated_amount $DENOM delegated to $VALIDATOR_NAME"
+    else
+        log_fail "Delegation query returned unexpected result: $delegation_output"
+    fi
+}
+
 # ============================================================================
 # Main Execution
 # ============================================================================
@@ -409,6 +666,10 @@ main() {
     
     # Transaction tests
     test_cosmos_bank_transfer
+    test_staking_delegation
+    test_tokenfactory_mint
+    test_tokenfactory_burn
+    test_tokenfactory_nonadmin_forbidden
     
     # Summary
     echo ""
