@@ -779,9 +779,35 @@ EOF
         set -e
 }
 
-# ============================================================================
-# Main Execution
-# ============================================================================
+test_wasm_cw20_token_info() {
+    log_test "WASM query CW20 token metadata"
+    
+    set +e
+    
+    if [ -z "$WASM_CONTRACT_ADDR" ]; then
+        log_fail "WASM token info test missing contract address (instantiate must run first)"
+        set -e
+        return
+    fi
+    
+    local token_info_json
+    token_info_json=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" '{"token_info":{}}' \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    
+    local name=$(echo "$token_info_json" | jq -r '.data.name // empty' 2>/dev/null)
+    local symbol=$(echo "$token_info_json" | jq -r '.data.symbol // empty' 2>/dev/null)
+    local decimals=$(echo "$token_info_json" | jq -r '.data.decimals // empty' 2>/dev/null)
+    local total_supply=$(echo "$token_info_json" | jq -r '.data.total_supply // empty' 2>/dev/null)
+    
+    if [ "$name" = "Kudora Test Token" ] && [ "$symbol" = "KTK" ] && [ "$decimals" = "6" ] && [ "$total_supply" = "1000" ]; then
+        log_success "WASM token info correct: $name ($symbol), $decimals decimals, supply $total_supply"
+    else
+        log_fail "WASM token info mismatch: name=$name symbol=$symbol decimals=$decimals supply=$total_supply; response: $token_info_json"
+    fi
+    
+    set -e
+}
 
 main() {
     echo ""
@@ -830,6 +856,7 @@ main() {
 
     # WASM tests
     test_wasm_store_and_instantiate
+    test_wasm_cw20_token_info
 
     echo ""
     log_info "Running transaction tests..."
