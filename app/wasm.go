@@ -16,8 +16,14 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	evmante "github.com/cosmos/evm/ante"
+	evmdecorators "github.com/cosmos/evm/ante/evm"
+	srvflags "github.com/cosmos/evm/server/flags"
+	evmtypes "github.com/cosmos/evm/types"
 	"github.com/cosmos/gogoproto/proto"
 	porttypes "github.com/cosmos/ibc-go/v10/modules/core/05-port/types"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/spf13/cast"
 )
 
 // registerWasmModules register CosmWasm keepers and non dependency inject modules.
@@ -84,7 +90,7 @@ func (app *App) registerWasmModules(
 		return nil, err
 	}
 
-	if err := app.setAnteHandler(app.txConfig, wasmConfig, app.GetKey(wasmtypes.StoreKey)); err != nil {
+	if err := app.setAnteHandler(appOpts, app.txConfig, wasmConfig, app.GetKey(wasmtypes.StoreKey)); err != nil {
 		return nil, err
 	}
 
@@ -129,21 +135,36 @@ func (app *App) setPostHandler() error {
 	return nil
 }
 
-func (app *App) setAnteHandler(txConfig client.TxConfig, wasmConfig wasmtypes.NodeConfig, txCounterStoreKey *storetypes.KVStoreKey) error {
+func (app *App) setAnteHandler(appOpts servertypes.AppOptions, txConfig client.TxConfig, wasmConfig wasmtypes.NodeConfig, txCounterStoreKey *storetypes.KVStoreKey) error {
+	maxGasWanted := cast.ToUint64(appOpts.Get(srvflags.EVMMaxTxGasWanted))
+
 	anteHandler, err := NewAnteHandler(
 		HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
-				AccountKeeper:   app.AuthKeeper,
-				BankKeeper:      app.BankKeeper,
-				SignModeHandler: txConfig.SignModeHandler(),
-				FeegrantKeeper:  app.FeeGrantKeeper,
-				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
+				AccountKeeper:          app.AuthKeeper,
+				BankKeeper:             app.BankKeeper,
+				SignModeHandler:        txConfig.SignModeHandler(),
+				FeegrantKeeper:         app.FeeGrantKeeper,
+				ExtensionOptionChecker: evmtypes.HasDynamicFeeExtensionOption,
+				SigGasConsumer:         evmante.SigVerificationGasConsumer,
 			},
-			IBCKeeper:             app.IBCKeeper,
-			NodeConfig:            &wasmConfig,
-			WasmKeeper:            &app.WasmKeeper,
-			TXCounterStoreService: runtime.NewKVStoreService(txCounterStoreKey),
-			CircuitKeeper:         &app.CircuitBreakerKeeper,
+			AccountKeeper:   app.AuthKeeper,
+			Cdc:             app.appCodec,
+			EvmKeeper:       app.EVMKeeper,
+			FeeMarketKeeper: app.FeeMarketKeeper,
+			MaxTxGasWanted:  maxGasWanted,
+			TxFeeChecker:    evmdecorators.NewDynamicFeeChecker(app.FeeMarketKeeper),
+			PendingTxListener: func(hash common.Hash) {
+				for _, listener := range app.pendingTxListeners {
+					listener(hash)
+				}
+			},
+			ExtensionOptionChecker: evmtypes.HasDynamicFeeExtensionOption,
+			IBCKeeper:              app.IBCKeeper,
+			NodeConfig:             &wasmConfig,
+			WasmKeeper:             &app.WasmKeeper,
+			TXCounterStoreService:  runtime.NewKVStoreService(txCounterStoreKey),
+			CircuitKeeper:          &app.CircuitBreakerKeeper,
 		},
 	)
 	if err != nil {
