@@ -117,6 +117,21 @@ ensure_wasm_artifact() {
     fi
 }
 
+ensure_tokenfactory_wasm_artifact() {
+    local artifact="$HOME_DIR/tokenfactory.wasm"
+    local url="https://raw.githubusercontent.com/cosmos/tokenfactory/main/x/tokenfactory/bindings/testdata/tokenfactory.wasm"
+
+    if [ -f "$artifact" ]; then
+        return 0
+    fi
+
+    log_info "Fetching tokenfactory.wasm for binding tests..."
+    if ! curl -fL "$url" -o "$artifact"; then
+        log_fail "Failed to download tokenfactory.wasm from $url"
+        return 1
+    fi
+}
+
 # ============================================================================
 # Setup
 # ============================================================================
@@ -1014,6 +1029,258 @@ test_wasm_cw20_all_accounts() {
     set -e
 }
 
+test_wasm_tokenfactory_bindings() {
+    log_test "WASM tokenfactory bindings: create denom and mint"
+
+    set +e
+
+    if ! ensure_tokenfactory_wasm_artifact; then
+        set -e
+        return
+    fi
+
+    local artifact="$HOME_DIR/tokenfactory.wasm"
+
+    local store_out
+    store_out=$($BINARY tx wasm store "$artifact" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local store_json=$(echo "$store_out" | sed -n '/^{/,$p')
+    if [ -z "$store_json" ]; then
+        log_fail "Tokenfactory wasm store failed (non-JSON response): $store_out"
+        set -e
+        return
+    fi
+
+    local store_code
+    if ! store_code=$(echo "$store_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory wasm store failed (invalid JSON): $store_out"
+        set -e
+        return
+    fi
+
+    if [ "$store_code" != "0" ]; then
+        local raw_log=$(echo "$store_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory wasm store failed with code: $store_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    local store_txhash=$(echo "$store_json" | jq -r '.txhash // empty')
+    if [ -z "$store_txhash" ] || [ "$store_txhash" = "null" ]; then
+        log_fail "Tokenfactory wasm store missing txhash: $store_json"
+        set -e
+        return
+    fi
+
+    sleep 3
+
+    local store_tx_query
+    store_tx_query=$($BINARY query tx "$store_txhash" --home "$HOME_DIR" --output json 2>/dev/null || true)
+
+    local tf_code_id
+    tf_code_id=$(echo "$store_tx_query" | jq -r '.events[] | select(.type=="store_code") | .attributes[] | select(.key=="code_id") | .value' 2>/dev/null)
+    if [ -z "$tf_code_id" ] || [ "$tf_code_id" = "null" ]; then
+        log_fail "Tokenfactory wasm store did not return a code_id: $store_tx_query"
+        set -e
+        return
+    fi
+
+    local instantiate_out
+    instantiate_out=$($BINARY tx wasm instantiate "$tf_code_id" "{}" \
+        --label "tf-bindings" \
+        --no-admin \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local inst_json=$(echo "$instantiate_out" | sed -n '/^{/,$p')
+    if [ -z "$inst_json" ]; then
+        log_fail "Tokenfactory wasm instantiate failed (non-JSON response): $instantiate_out"
+        set -e
+        return
+    fi
+
+    local inst_code
+    if ! inst_code=$(echo "$inst_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory wasm instantiate failed (invalid JSON): $instantiate_out"
+        set -e
+        return
+    fi
+
+    if [ "$inst_code" != "0" ]; then
+        local raw_log=$(echo "$inst_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory wasm instantiate failed with code: $inst_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    local inst_txhash=$(echo "$inst_json" | jq -r '.txhash // empty')
+    if [ -z "$inst_txhash" ] || [ "$inst_txhash" = "null" ]; then
+        log_fail "Tokenfactory wasm instantiate missing txhash: $inst_json"
+        set -e
+        return
+    fi
+
+    sleep 3
+
+    local inst_tx_query
+    inst_tx_query=$($BINARY query tx "$inst_txhash" --home "$HOME_DIR" --output json 2>/dev/null || true)
+
+    local tf_contract_addr
+    tf_contract_addr=$(echo "$inst_tx_query" | jq -r '.events[] | select(.type=="instantiate") | .attributes[] | select(.key=="_contract_address" or .key=="contract_address") | .value' 2>/dev/null)
+    if [ -z "$tf_contract_addr" ] || [ "$tf_contract_addr" = "null" ]; then
+        log_fail "Tokenfactory wasm instantiate missing contract address: $inst_tx_query"
+        set -e
+        return
+    fi
+
+    # Fund the contract with denom creation fee so bindings can create denom
+    local denom_creation_fee
+    denom_creation_fee=$($BINARY query tokenfactory params --home "$HOME_DIR" --output json 2>/dev/null | jq -r '.params.denom_creation_fee[0].amount // "0"')
+    if [ -z "$denom_creation_fee" ] || [ "$denom_creation_fee" = "null" ]; then
+        denom_creation_fee="0"
+    fi
+
+    if [ "$denom_creation_fee" != "0" ]; then
+        local fund_out
+        fund_out=$($BINARY tx bank send "$VALIDATOR_NAME" "$tf_contract_addr" "${denom_creation_fee}${DENOM}" \
+            --chain-id "$CHAIN_ID" \
+            --keyring-backend "$KEYRING" \
+            --home "$HOME_DIR" \
+            --gas auto \
+            --gas-adjustment 1.5 \
+            --fees 500000000000000${DENOM} \
+            -y \
+            --output json 2>&1 || true)
+
+        local fund_json=$(echo "$fund_out" | sed -n '/^{/,$p')
+        local fund_code="0"
+        if [ -n "$fund_json" ]; then
+            fund_code=$(echo "$fund_json" | jq -r '.code // 0' 2>/dev/null)
+        fi
+        if [ "$fund_code" != "0" ]; then
+            local raw_log=$(echo "$fund_json" | jq -r '.raw_log // empty')
+            log_fail "Funding contract for denom fee failed with code: $fund_code ${raw_log:+- $raw_log}"
+            set -e
+            return
+        fi
+
+        sleep 4
+    fi
+
+    local subdenom="tfwasm"
+    local create_msg
+    create_msg=$(cat <<EOF
+{"create_denom":{"subdenom":"$subdenom"}}
+EOF
+    )
+
+    local create_out
+    create_out=$($BINARY tx wasm execute "$tf_contract_addr" "$create_msg" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local create_json=$(echo "$create_out" | sed -n '/^{/,$p')
+    if [ -z "$create_json" ]; then
+        log_fail "Tokenfactory wasm create_denom failed (non-JSON response): $create_out"
+        set -e
+        return
+    fi
+
+    local create_code
+    if ! create_code=$(echo "$create_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory wasm create_denom failed (invalid JSON): $create_out"
+        set -e
+        return
+    fi
+
+    if [ "$create_code" != "0" ]; then
+        local raw_log=$(echo "$create_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory wasm create_denom failed with code: $create_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    sleep 4
+
+    local denom="factory/${tf_contract_addr}/$subdenom"
+    local mint_amount="1000"
+    local mint_msg
+    mint_msg=$(cat <<EOF
+{"mint_tokens":{"denom":"$denom","amount":"$mint_amount","mint_to_address":"$VALIDATOR_ADDR"}}
+EOF
+    )
+
+    local mint_out
+    mint_out=$($BINARY tx wasm execute "$tf_contract_addr" "$mint_msg" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local mint_json=$(echo "$mint_out" | sed -n '/^{/,$p')
+    if [ -z "$mint_json" ]; then
+        log_fail "Tokenfactory wasm mint failed (non-JSON response): $mint_out"
+        set -e
+        return
+    fi
+
+    local mint_code
+    if ! mint_code=$(echo "$mint_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory wasm mint failed (invalid JSON): $mint_out"
+        set -e
+        return
+    fi
+
+    if [ "$mint_code" != "0" ]; then
+        local raw_log=$(echo "$mint_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory wasm mint failed with code: $mint_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    sleep 4
+
+    local balances_json
+    balances_json=$($BINARY query bank balances "$VALIDATOR_ADDR" --home "$HOME_DIR" --output json 2>/dev/null)
+    local minted_balance=$(echo "$balances_json" | jq -r --arg denom "$denom" '.balances[] | select(.denom==$denom) | .amount' 2>/dev/null)
+
+    if [ "$minted_balance" = "$mint_amount" ]; then
+        log_success "Tokenfactory bindings OK via WASM: minted $minted_balance $denom to $VALIDATOR_ADDR"
+    else
+        log_fail "Tokenfactory bindings mismatch: expected $mint_amount got ${minted_balance:-none}; balances: $balances_json"
+    fi
+
+    set -e
+}
+
 main() {
     echo ""
     echo "============================================"
@@ -1065,6 +1332,7 @@ main() {
     test_wasm_cw20_transfer
     test_wasm_cw20_insufficient_funds
     test_wasm_cw20_all_accounts
+    test_wasm_tokenfactory_bindings
 
     echo ""
     log_info "Running transaction tests..."
