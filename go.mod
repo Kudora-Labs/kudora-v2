@@ -3,8 +3,6 @@ module kudora
 go 1.24.0
 
 replace (
-	// pin to version expected by cosmos-sdk v0.53.4
-	cosmossdk.io/core => cosmossdk.io/core v0.11.3
 	// fix upstream GHSA-h395-qcrw-5vmq vulnerability.
 	github.com/gin-gonic/gin => github.com/gin-gonic/gin v1.9.1
 	// replace broken goleveldb
@@ -16,7 +14,7 @@ replace (
 require (
 	cosmossdk.io/api v0.9.2
 	cosmossdk.io/client/v2 v2.0.0-beta.11
-	cosmossdk.io/core v0.12.0
+	cosmossdk.io/core v0.11.3
 	cosmossdk.io/depinject v1.2.1
 	cosmossdk.io/log v1.6.1
 	cosmossdk.io/math v1.5.3
