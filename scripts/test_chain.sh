@@ -809,6 +809,95 @@ test_wasm_cw20_token_info() {
     set -e
 }
 
+test_wasm_cw20_transfer() {
+    log_test "WASM CW20 token transfer between accounts"
+    
+    set +e
+    
+    if [ -z "$WASM_CONTRACT_ADDR" ]; then
+        log_fail "WASM transfer test missing contract address (instantiate must run first)"
+        set -e
+        return
+    fi
+    
+    # Check initial balances
+    local user_balance_before
+    user_balance_before=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$USER_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local user_bal_before=$(echo "$user_balance_before" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    local validator_balance_before
+    validator_balance_before=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$VALIDATOR_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local validator_bal_before=$(echo "$validator_balance_before" | jq -r '.data.balance // "0"' 2>/dev/null)
+    
+    # Transfer 300 tokens from USER to VALIDATOR
+    local transfer_amount="300"
+    local transfer_msg="{\"transfer\":{\"recipient\":\"$VALIDATOR_ADDR\",\"amount\":\"$transfer_amount\"}}"
+    
+    local transfer_out
+    transfer_out=$($BINARY tx wasm execute "$WASM_CONTRACT_ADDR" "$transfer_msg" \
+        --from "$USER_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+    
+    local transfer_json=$(echo "$transfer_out" | sed -n '/^{/,$p')
+    if [ -z "$transfer_json" ]; then
+        log_fail "WASM transfer failed (non-JSON response): $transfer_out"
+        set -e
+        return
+    fi
+    
+    local transfer_code
+    if ! transfer_code=$(echo "$transfer_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "WASM transfer failed (invalid JSON): $transfer_out"
+        set -e
+        return
+    fi
+    
+    if [ "$transfer_code" != "0" ]; then
+        local raw_log=$(echo "$transfer_json" | jq -r '.raw_log // empty')
+        log_fail "WASM transfer failed with code: $transfer_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+    
+    sleep 3
+    
+    # Check final balances
+    local user_balance_after
+    user_balance_after=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$USER_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local user_bal_after=$(echo "$user_balance_after" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    local validator_balance_after
+    validator_balance_after=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$VALIDATOR_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local validator_bal_after=$(echo "$validator_balance_after" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    # Verify balances changed correctly
+    local expected_user=$((user_bal_before - transfer_amount))
+    local expected_validator=$((validator_bal_before + transfer_amount))
+    
+    if [ "$user_bal_after" = "$expected_user" ] && [ "$validator_bal_after" = "$expected_validator" ]; then
+        log_success "WASM transfer successful: $USER_NAME $user_bal_after (was $user_bal_before), $VALIDATOR_NAME $validator_bal_after (was $validator_bal_before)"
+    else
+        log_fail "WASM transfer balance mismatch: user expected $expected_user got $user_bal_after, validator expected $expected_validator got $validator_bal_after"
+    fi
+    
+    set -e
+}
+
 main() {
     echo ""
     echo "============================================"
@@ -857,6 +946,7 @@ main() {
     # WASM tests
     test_wasm_store_and_instantiate
     test_wasm_cw20_token_info
+    test_wasm_cw20_transfer
 
     echo ""
     log_info "Running transaction tests..."
