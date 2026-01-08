@@ -898,6 +898,122 @@ test_wasm_cw20_transfer() {
     set -e
 }
 
+test_wasm_cw20_insufficient_funds() {
+    log_test "WASM CW20 transfer fails with insufficient balance"
+    
+    set +e
+    
+    if [ -z "$WASM_CONTRACT_ADDR" ]; then
+        log_fail "WASM insufficient funds test missing contract address (instantiate must run first)"
+        set -e
+        return
+    fi
+    
+    # Check current balance of validator (should be 300 from previous transfer)
+    local current_balance
+    current_balance=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$VALIDATOR_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local balance=$(echo "$current_balance" | jq -r '.data.balance // "0"' 2>/dev/null)
+    
+    # Try to transfer more than available balance
+    local excessive_amount="1000"
+    local transfer_msg="{\"transfer\":{\"recipient\":\"$USER_ADDR\",\"amount\":\"$excessive_amount\"}}"
+    
+    local transfer_out
+    transfer_out=$($BINARY tx wasm execute "$WASM_CONTRACT_ADDR" "$transfer_msg" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+    
+    # Check if error contains "insufficient" or similar
+    if echo "$transfer_out" | grep -qi "insufficient\|cannot subtract\|overflow"; then
+        log_success "WASM transfer correctly rejected (insufficient funds: balance=$balance, attempted=$excessive_amount)"
+        set -e
+        return
+    fi
+    
+    local transfer_json=$(echo "$transfer_out" | sed -n '/^{/,$p')
+    if [ -z "$transfer_json" ]; then
+        log_fail "WASM insufficient funds test produced unexpected output: $transfer_out"
+        set -e
+        return
+    fi
+    
+    local transfer_code
+    if ! transfer_code=$(echo "$transfer_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "WASM insufficient funds test invalid JSON: $transfer_out"
+        set -e
+        return
+    fi
+    
+    if [ "$transfer_code" = "0" ]; then
+        log_fail "WASM transfer with insufficient funds unexpectedly succeeded"
+    else
+        local raw_log=$(echo "$transfer_json" | jq -r '.raw_log // empty')
+        log_success "WASM transfer correctly rejected (code $transfer_code, balance=$balance, attempted=$excessive_amount)"
+    fi
+    
+    set -e
+}
+
+test_wasm_cw20_all_accounts() {
+    log_test "WASM CW20 verify all account balances"
+    
+    set +e
+    
+    if [ -z "$WASM_CONTRACT_ADDR" ]; then
+        log_fail "WASM all accounts test missing contract address (instantiate must run first)"
+        set -e
+        return
+    fi
+    
+    # Query all accounts and verify final state
+    local user_balance
+    user_balance=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$USER_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local user_bal=$(echo "$user_balance" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    local validator_balance
+    validator_balance=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$VALIDATOR_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local validator_bal=$(echo "$validator_balance" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    # Get token info for total supply verification
+    local token_info
+    token_info=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" '{"token_info":{}}' \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local total_supply=$(echo "$token_info" | jq -r '.data.total_supply // empty' 2>/dev/null)
+    
+    # Expected state after all transfers:
+    # - Initial: USER=1000, VALIDATOR=0
+    # - After transfer: USER=700, VALIDATOR=300
+    # - Failed transfer (insufficient funds) should not change balances
+    local expected_user="700"
+    local expected_validator="300"
+    local expected_total="1000"
+    
+    # Calculate actual total from all balances
+    local actual_total=$((user_bal + validator_bal))
+    
+    if [ "$user_bal" = "$expected_user" ] && [ "$validator_bal" = "$expected_validator" ] && [ "$total_supply" = "$expected_total" ] && [ "$actual_total" = "$expected_total" ]; then
+        log_success "WASM all accounts verified: user=$user_bal, validator=$validator_bal, total_supply=$total_supply (sum=$actual_total)"
+    else
+        log_fail "WASM account verification failed: user expected $expected_user got $user_bal, validator expected $expected_validator got $validator_bal, supply expected $expected_total got $total_supply (sum=$actual_total)"
+    fi
+    
+    set -e
+}
+
 main() {
     echo ""
     echo "============================================"
@@ -947,6 +1063,8 @@ main() {
     test_wasm_store_and_instantiate
     test_wasm_cw20_token_info
     test_wasm_cw20_transfer
+    test_wasm_cw20_insufficient_funds
+    test_wasm_cw20_all_accounts
 
     echo ""
     log_info "Running transaction tests..."
