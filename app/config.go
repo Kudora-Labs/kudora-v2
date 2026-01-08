@@ -238,7 +238,7 @@ func parseEVMChainID(chainID string) (uint64, error) {
 		return 0, fmt.Errorf("cannot extract evm chain id from %q", chainID)
 	}
 
-	last := parts[len(parts)-1]         // e.g. "12000-1"
+	last := parts[len(parts)-1]            // e.g. "12000-1"
 	evmPart := strings.Split(last, "-")[0] // e.g. "12000"
 
 	n, err := strconv.ParseUint(evmPart, 10, 64)

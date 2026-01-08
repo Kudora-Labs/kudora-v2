@@ -3,6 +3,8 @@ package app
 import (
 	"cosmossdk.io/core/appmodule"
 	storetypes "cosmossdk.io/store/types"
+	"github.com/CosmWasm/wasmd/x/wasm"
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
@@ -125,6 +127,12 @@ func (app *App) registerIBCModules(appOpts servertypes.AppOptions) error {
 	ibcv2Router := ibcapi.NewRouter().
 		AddRoute(ibctransfertypes.PortID, transferStackV2)
 
+	wasmStack, err := app.registerWasmModules(appOpts)
+	if err != nil {
+		return err
+	}
+	ibcRouter.AddRoute(wasmtypes.ModuleName, wasmStack)
+
 	// this line is used by starport scaffolding # ibc/app/module
 
 	app.IBCKeeper.SetRouter(ibcRouter)
@@ -158,10 +166,12 @@ func (app *App) registerIBCModules(appOpts servertypes.AppOptions) error {
 // This needs to be removed after IBC supports App Wiring.
 func RegisterIBC(cdc codec.Codec) map[string]appmodule.AppModule {
 	modules := map[string]appmodule.AppModule{
-		ibcexported.ModuleName: ibc.NewAppModule(&ibckeeper.Keeper{}),
-		icatypes.ModuleName:    icamodule.NewAppModule(&icacontrollerkeeper.Keeper{}, &icahostkeeper.Keeper{}),
-		ibctm.ModuleName:       ibctm.NewAppModule(ibctm.NewLightClientModule(cdc, ibcclienttypes.StoreProvider{})),
-		solomachine.ModuleName: solomachine.NewAppModule(solomachine.NewLightClientModule(cdc, ibcclienttypes.StoreProvider{})),
+		ibcexported.ModuleName:      ibc.AppModule{},
+		ibctransfertypes.ModuleName: ibctransfer.AppModule{},
+		icatypes.ModuleName:         icamodule.AppModule{},
+		ibctm.ModuleName:            ibctm.AppModule{},
+		solomachine.ModuleName:      solomachine.AppModule{},
+		wasmtypes.ModuleName:        wasm.AppModule{},
 	}
 
 	for _, m := range modules {
@@ -169,11 +179,6 @@ func RegisterIBC(cdc codec.Codec) map[string]appmodule.AppModule {
 			mr.RegisterInterfaces(cdc.InterfaceRegistry())
 		}
 	}
-
-	ibcTransferModuleBasic := ibctransferevm.AppModuleBasic{
-		AppModuleBasic: &ibctransfer.AppModuleBasic{},
-	}
-	ibcTransferModuleBasic.RegisterInterfaces(cdc.InterfaceRegistry())
 
 	return modules
 }

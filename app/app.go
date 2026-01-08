@@ -14,7 +14,9 @@ import (
 	feegrantkeeper "cosmossdk.io/x/feegrant/keeper"
 	upgradekeeper "cosmossdk.io/x/upgrade/keeper"
 
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	abci "github.com/cometbft/cometbft/abci/types"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -45,7 +47,6 @@ import (
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	evmante "github.com/cosmos/evm/ante"
 	evmmempool "github.com/cosmos/evm/mempool"
-	evmsrvflags "github.com/cosmos/evm/server/flags"
 	erc20keeper "github.com/cosmos/evm/x/erc20/keeper"
 	feemarketkeeper "github.com/cosmos/evm/x/feemarket/keeper"
 	ibctransferkeeper "github.com/cosmos/evm/x/ibc/transfer/keeper"
@@ -55,7 +56,6 @@ import (
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native"
-	"github.com/spf13/cast"
 
 	tokenfactorykeeper "github.com/cosmos/tokenfactory/x/tokenfactory/keeper"
 
@@ -123,6 +123,7 @@ type App struct {
 	EVMKeeper          *evmkeeper.Keeper
 	Erc20Keeper        erc20keeper.Keeper
 	EVMMempool         *evmmempool.ExperimentalEVMMempool
+	WasmKeeper         wasmkeeper.Keeper
 }
 
 func init() {
@@ -198,7 +199,8 @@ func New(
 		&app.AuthzKeeper,
 		&app.ConsensusParamsKeeper,
 		&app.CircuitBreakerKeeper,
-		&app.ParamsKeeper, &app.FeeGrantKeeper,
+		&app.ParamsKeeper, 
+		&app.FeeGrantKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -221,8 +223,8 @@ func New(
 	// Register Token Factory module
 	if err := app.registerTokenFactoryModule(appOpts); err != nil {
 		panic(err)
-	} 
-	
+	}
+
 	if err := app.postRegisterEVMModules(); err != nil {
 		panic(err)
 	}
@@ -247,12 +249,13 @@ func New(
 		}
 		return app.App.InitChainer(ctx, req)
 	})
-	maxGasWanted := cast.ToUint64(appOpts.Get(evmsrvflags.EVMMaxTxGasWanted))
-	app.setAnteHandler(app.txConfig, maxGasWanted)
 
 	app.setEVMMempool()
 
 	if err := app.Load(loadLatest); err != nil {
+		panic(err)
+	}
+	if err := app.WasmKeeper.InitializePinnedCodes(app.NewUncachedContext(true, tmproto.Header{})); err != nil {
 		panic(err)
 	}
 
