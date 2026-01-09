@@ -1,50 +1,132 @@
-# kudora
-**kudora** is a blockchain built using Cosmos SDK and Tendermint and created with [Ignite CLI](https://ignite.com/cli).
+# Kudora
 
-## Get started
+Kudora est une blockchain basée sur **Cosmos SDK** (CometBFT) avec support **EVM** et **CosmWasm**.
 
-```
+## Repères
+
+- Binaire du nœud : `kudorad`
+- Chain ID (dev par défaut) : `kudora_12000-1`
+- Denom par défaut : `kud`
+- Home par défaut : `~/.kudora`
+
+## Prérequis
+
+- Go `1.24+` (voir `go.mod`)
+- [Ignite CLI](https://ignite.com/cli) (pour `ignite chain serve` et la génération proto)
+- Outils utiles pour les scripts : `jq`, `curl`
+
+## Démarrage rapide (dev)
+
+### Option A — via Ignite (devnet)
+
+La config du devnet (comptes, faucet, validators, paramètres genesis) est dans `config.yml`.
+
+```bash
 ignite chain serve
 ```
 
-`serve` command installs dependencies, builds, initializes, and starts your blockchain in development.
+### Option B — builder/installer le binaire
 
-### Configure
+Installe `kudorad` dans votre `GOBIN`/`GOPATH/bin` avec les `ldflags` de version.
 
-Your blockchain in development can be configured with `config.yml`. To learn more, see the [Ignite CLI docs](https://docs.ignite.com).
+```bash
+make install
+kudorad version
+```
 
-### Web Frontend
+## EVM (JSON-RPC) en local
 
-Additionally, Ignite CLI offers a frontend scaffolding feature (based on Vue) to help you quickly build a web frontend for your blockchain:
+Un helper est fourni pour démarrer un nœud local avec JSON-RPC EVM activé :
 
-Use: `ignite scaffold vue`
-This command can be run within your scaffolded blockchain project.
+```bash
+./scripts/start_evm.sh --clean --fast --dev-account
+```
 
+Endpoints (par défaut) :
 
-For more information see the [monorepo for Ignite front-end development](https://github.com/ignite/web).
+- Cosmos RPC : `http://localhost:26657`
+- Cosmos REST : `http://localhost:1317`
+- EVM JSON-RPC : `http://localhost:8545`
+- EVM WebSocket : `ws://localhost:8546`
+
+## Tests
+
+### Unit / race / coverage
+
+```bash
+make test
+make test-unit
+make test-race
+make test-cover
+make bench
+```
+
+`make test` exécute aussi `go vet` et `govulncheck`.
+
+### Script d’intégration (Cosmos + EVM)
+
+Le script `./scripts/test_chain.sh` lance un test “end-to-end” et **réinitialise** le home de test (`~/.kudora`).
+
+```bash
+./scripts/test_chain.sh
+```
+
+Prérequis : `kudorad` dans le `PATH`, `jq`, `curl`.
+
+## Lint & hygiène
+
+```bash
+make lint
+make lint-fix
+make govulncheck
+```
+
+## Protobuf
+
+Si vous ne souhaitez pas utiliser la génération via `ignite chain serve`, vous pouvez régénérer les protos Go :
+
+```bash
+make proto-gen
+```
+
+## OpenAPI (spec & console)
+
+- La spec OpenAPI est versionnée dans `docs/static/openapi.json`.
+- Le package `docs` contient un handler (console + spec) qui peut être branché sur un router HTTP (`RegisterOpenAPIService`).
+
+## Commandes utiles du binaire
+
+Le CLI expose (entre autres) :
+
+```bash
+kudorad --help
+kudorad start --help
+kudorad query --help
+kudorad tx --help
+```
+
+Pour des scénarios avancés :
+
+- `kudorad in-place-testnet ...` (dériver un testnet local à partir d’un state)
+- `kudorad multi-node ...` (générer des dossiers de config pour un testnet multi-validateurs)
+
+## Bonnes pratiques (dev vs prod)
+
+- Ne pas exposer JSON-RPC/WS (`8545/8546`) sur Internet en configuration dev.
+- Éviter `--keyring-backend test` en environnement partagé / prod.
+- Ajuster `minimum-gas-prices` pour éviter les transactions “free” hors dev.
+- Garder `config.yml` et les scripts comme **outils de dev** ; pour un réseau réel, préparez un `genesis.json` et des configs `app.toml`/`config.toml` adaptés.
 
 ## Release
-To release a new version of your blockchain, create and push a new tag with `v` prefix. A new draft release with the configured targets will be created.
 
+La version du binaire est dérivée d’un tag Git (sinon `branch-commit`). Pour préparer une release :
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
 ```
-git tag v0.1
-git push origin v0.1
-```
 
-After a draft release is created, make your final changes from the release page and publish it.
+## Ressources
 
-### Install
-To install the latest version of your blockchain node's binary, execute the following command on your machine:
-
-```
-curl https://get.ignite.com/username/kudora@latest! | sudo bash
-```
-`username/kudora` should match the `username` and `repo_name` of the Github repository to which the source code was pushed. Learn more about [the install process](https://github.com/ignite/installer).
-
-## Learn more
-
-- [Ignite CLI](https://ignite.com/cli)
-- [Tutorials](https://docs.ignite.com/guide)
-- [Ignite CLI docs](https://docs.ignite.com)
-- [Cosmos SDK docs](https://docs.cosmos.network)
-- [Developer Chat](https://discord.com/invite/ignitecli)
+- Cosmos SDK : https://docs.cosmos.network
+- Ignite CLI : https://docs.ignite.com
