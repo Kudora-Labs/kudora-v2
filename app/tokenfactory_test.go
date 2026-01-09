@@ -83,7 +83,7 @@ func TestTokenFactoryTestSuite(t *testing.T) {
 // SetupSuite runs once before all tests in the suite
 func (s *TokenFactoryTestSuite) SetupSuite() {
 	s.logger = log.NewNopLogger()
-	
+
 	app, err := getTestApp()
 	if err != nil || app == nil {
 		// If app creation failed (e.g., chainConfig already set by other tests),
@@ -91,7 +91,7 @@ func (s *TokenFactoryTestSuite) SetupSuite() {
 		s.T().Skipf("Skipping TokenFactory tests: %v", err)
 		return
 	}
-	
+
 	s.app = app
 	s.msgServer = tokenfactorykeeper.NewMsgServerImpl(s.app.TokenFactoryKeeper)
 }

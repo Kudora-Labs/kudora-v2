@@ -41,6 +41,9 @@ CLEAN=false
 FAST_BLOCKS=false
 CHAIN_INITIALIZED=false
 
+CONFIG_DIR="$HOME_DIR/config"
+GENESIS_FILE="$CONFIG_DIR/genesis.json"
+
 # Cosmos SDK requires a non-empty minimum-gas-prices value.
 # For local dev we default to a low value.
 MIN_GAS_PRICES="${MIN_GAS_PRICES:-0.0001${DENOM}}"
@@ -129,6 +132,12 @@ if [ "$CLEAN" = "true" ]; then
     log_step "Cleaning previous data..."
     rm -rf "$HOME_DIR"
     log_info "Removed $HOME_DIR"
+fi
+
+# Guard against partial setups where the config directory exists but genesis is missing
+if [ -d "$CONFIG_DIR" ] && [ ! -f "$GENESIS_FILE" ]; then
+    log_warn "Config found at $CONFIG_DIR but genesis.json is missing; resetting"
+    rm -rf "$HOME_DIR"
 fi
 
 # ============================================================================

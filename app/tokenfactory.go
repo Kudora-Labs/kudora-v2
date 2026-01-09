@@ -1,13 +1,13 @@
 package app
 
 import (
+	"cosmossdk.io/core/appmodule"
 	storetypes "cosmossdk.io/store/types"
+	"github.com/cosmos/cosmos-sdk/codec"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/codec"
-	"cosmossdk.io/core/appmodule"
 
 	// Token Factory imports from cosmos/tokenfactory
 	tokenfactory "github.com/cosmos/tokenfactory/x/tokenfactory"
@@ -17,10 +17,10 @@ import (
 
 // Define capabilities for Token Factory module
 var tokenFactoryCapabilities = []string{
-		tokenfactorytypes.EnableBurnFrom,
-		tokenfactorytypes.EnableForceTransfer,
-		tokenfactorytypes.EnableSetMetadata,
-		tokenfactorytypes.EnableCommunityPoolFeeFunding,
+	tokenfactorytypes.EnableBurnFrom,
+	tokenfactorytypes.EnableForceTransfer,
+	tokenfactorytypes.EnableSetMetadata,
+	tokenfactorytypes.EnableCommunityPoolFeeFunding,
 }
 
 // registerTokenFactoryModule registers the Token Factory keeper and module.
@@ -76,10 +76,10 @@ func (app *App) registerTokenFactoryModule(appOpts servertypes.AppOptions) error
 func RegisterTokenFactory(cdc codec.Codec) map[string]appmodule.AppModule {
 	modules := map[string]appmodule.AppModule{
 		tokenfactorytypes.ModuleName: tokenfactory.NewAppModule(
-			tokenfactorykeeper.Keeper{},    // Empty keeper for CLI registration
-			nil,                   			// AccountKeeper not needed for CLI
-			nil,                            // BankKeeper not needed for CLI
-			nil,                            // Subspace not needed for CLI
+			tokenfactorykeeper.Keeper{}, // Empty keeper for CLI registration
+			nil,                         // AccountKeeper not needed for CLI
+			nil,                         // BankKeeper not needed for CLI
+			nil,                         // Subspace not needed for CLI
 		),
 	}
 

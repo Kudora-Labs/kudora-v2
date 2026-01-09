@@ -54,7 +54,7 @@ func (app *App) registerEVMModules(appOpts servertypes.AppOptions) error {
 			DisplayDenom:  sdk.DefaultBondDenom,
 			Decimals:      evmtypes.Decimals(evmtypes.DefaultEVMDecimals),
 		},
-	}	
+	}
 
 	// configure evm modules
 	if err := evmconfig.EvmAppOptionsWithConfig(

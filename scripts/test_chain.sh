@@ -102,6 +102,36 @@ wait_for_blocks() {
     return 1
 }
 
+ensure_wasm_artifact() {
+    local artifact="$HOME_DIR/cw20_base.wasm"
+    local url="https://github.com/CosmWasm/cw-plus/releases/download/v1.1.0/cw20_base.wasm"
+
+    if [ -f "$artifact" ]; then
+        return 0
+    fi
+
+    log_info "Fetching cw20_base.wasm for WASM tests..."
+    if ! curl -fL "$url" -o "$artifact"; then
+        log_fail "Failed to download cw20_base.wasm from $url"
+        return 1
+    fi
+}
+
+ensure_tokenfactory_wasm_artifact() {
+    local artifact="$HOME_DIR/tokenfactory.wasm"
+    local url="https://raw.githubusercontent.com/cosmos/tokenfactory/main/x/tokenfactory/bindings/testdata/tokenfactory.wasm"
+
+    if [ -f "$artifact" ]; then
+        return 0
+    fi
+
+    log_info "Fetching tokenfactory.wasm for binding tests..."
+    if ! curl -fL "$url" -o "$artifact"; then
+        log_fail "Failed to download tokenfactory.wasm from $url"
+        return 1
+    fi
+}
+
 # ============================================================================
 # Setup
 # ============================================================================
@@ -316,9 +346,19 @@ test_cosmos_bank_transfer() {
         --gas-adjustment 1.5 \
         --fees 1000000000000000${DENOM} \
         -y \
-        --output json 2>/dev/null)
+        --output json 2>&1 || true)
     
-    local code=$(echo "$result" | jq -r '.code // 0')
+    local json=$(echo "$result" | sed -n '/^{/,$p')
+    if [ -z "$json" ]; then
+        log_fail "Bank transfer failed (non-JSON response): $result"
+        return
+    fi
+    
+    local code
+    if ! code=$(echo "$json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Bank transfer failed (invalid JSON): $result"
+        return
+    fi
     
     if [ "$code" == "0" ]; then
         log_success "Bank transfer submitted successfully"
@@ -330,7 +370,8 @@ test_cosmos_bank_transfer() {
         local balance=$($BINARY query bank balances "$USER_ADDR" --home "$HOME_DIR" --output json | jq -r ".balances[0].amount")
         log_info "User balance after transfer: $balance $DENOM"
     else
-        log_fail "Bank transfer failed with code: $code"
+        local raw_log=$(echo "$json" | jq -r '.raw_log // empty')
+        log_fail "Bank transfer failed with code: $code ${raw_log:+- $raw_log}"
     fi
 }
 
@@ -615,9 +656,630 @@ test_staking_delegation() {
     fi
 }
 
-# ============================================================================
-# Main Execution
-# ============================================================================
+test_wasm_store_and_instantiate() {
+    log_test "WASM store, instantiate, and query cw20 contract"
+    
+        # Disable errexit locally to surface detailed failures without aborting the suite
+        set +e
+
+    if ! ensure_wasm_artifact; then
+           set -e
+           return
+    fi
+
+    local store_out
+    store_out=$($BINARY tx wasm store "$HOME_DIR/cw20_base.wasm" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local store_json=$(echo "$store_out" | sed -n '/^{/,$p')
+    if [ -z "$store_json" ]; then
+        log_fail "WASM store failed (non-JSON response): $store_out"
+        return
+    fi
+
+    local store_code
+    if ! store_code=$(echo "$store_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "WASM store failed (invalid JSON): $store_out"
+        return
+    fi
+
+    if [ "$store_code" != "0" ]; then
+        local raw_log=$(echo "$store_json" | jq -r '.raw_log // empty')
+        log_fail "WASM store failed with code: $store_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    local txhash=$(echo "$store_json" | jq -r '.txhash // empty')
+    if [ -z "$txhash" ] || [ "$txhash" = "null" ]; then
+        log_fail "WASM store did not return a txhash: $store_json"
+        set -e
+        return
+    fi
+
+    sleep 3
+
+    local tx_query
+    tx_query=$($BINARY query tx "$txhash" --home "$HOME_DIR" --output json 2>/dev/null || true)
+    
+    WASM_CODE_ID=$(echo "$tx_query" | jq -r '.events[] | select(.type=="store_code") | .attributes[] | select(.key=="code_id") | .value' 2>/dev/null)
+    if [ -z "$WASM_CODE_ID" ] || [ "$WASM_CODE_ID" = "null" ]; then
+        log_fail "WASM store did not return a code_id in tx query: $tx_query"
+        set -e
+        return
+    fi
+
+    local init_msg
+    init_msg=$(cat <<EOF
+{"name":"Kudora Test Token","symbol":"KTK","decimals":6,"initial_balances":[{"address":"$USER_ADDR","amount":"1000"}]}
+EOF
+    )
+
+    local instantiate_out
+    instantiate_out=$($BINARY tx wasm instantiate "$WASM_CODE_ID" "$init_msg" \
+        --label "cw20-test" \
+        --no-admin \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local instantiate_json=$(echo "$instantiate_out" | sed -n '/^{/,$p')
+    if [ -z "$instantiate_json" ]; then
+        log_fail "WASM instantiate failed (non-JSON response): $instantiate_out"
+        return
+    fi
+
+    local instantiate_code
+    if ! instantiate_code=$(echo "$instantiate_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "WASM instantiate failed (invalid JSON): $instantiate_out"
+        return
+    fi
+
+    if [ "$instantiate_code" != "0" ]; then
+        local raw_log=$(echo "$instantiate_json" | jq -r '.raw_log // empty')
+        log_fail "WASM instantiate failed with code: $instantiate_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    local inst_txhash=$(echo "$instantiate_json" | jq -r '.txhash // empty')
+    if [ -z "$inst_txhash" ] || [ "$inst_txhash" = "null" ]; then
+        log_fail "WASM instantiate did not return a txhash: $instantiate_json"
+        set -e
+        return
+    fi
+
+    sleep 3
+
+    local inst_tx_query
+    inst_tx_query=$($BINARY query tx "$inst_txhash" --home "$HOME_DIR" --output json 2>/dev/null || true)
+    
+    WASM_CONTRACT_ADDR=$(echo "$inst_tx_query" | jq -r '.events[] | select(.type=="instantiate") | .attributes[] | select(.key=="_contract_address" or .key=="contract_address") | .value' 2>/dev/null)
+    if [ -z "$WASM_CONTRACT_ADDR" ] || [ "$WASM_CONTRACT_ADDR" = "null" ]; then
+        log_fail "WASM instantiate did not return a contract address in tx query: $inst_tx_query"
+        set -e
+        return
+    fi
+
+    sleep 2
+
+    local balance_json
+    balance_json=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$USER_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+
+    local cw20_balance=$(echo "$balance_json" | jq -r '.data.balance // empty' 2>/dev/null)
+
+    if [ "$cw20_balance" = "1000" ]; then
+        log_success "WASM cw20 instantiated successfully: balance $cw20_balance for $USER_ADDR"
+    else
+        log_fail "WASM cw20 balance query mismatch: expected 1000 got ${cw20_balance:-none}; response: $balance_json"
+    fi
+    
+        # Re-enable errexit for subsequent steps
+        set -e
+}
+
+test_wasm_cw20_token_info() {
+    log_test "WASM query CW20 token metadata"
+    
+    set +e
+    
+    if [ -z "$WASM_CONTRACT_ADDR" ]; then
+        log_fail "WASM token info test missing contract address (instantiate must run first)"
+        set -e
+        return
+    fi
+    
+    local token_info_json
+    token_info_json=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" '{"token_info":{}}' \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    
+    local name=$(echo "$token_info_json" | jq -r '.data.name // empty' 2>/dev/null)
+    local symbol=$(echo "$token_info_json" | jq -r '.data.symbol // empty' 2>/dev/null)
+    local decimals=$(echo "$token_info_json" | jq -r '.data.decimals // empty' 2>/dev/null)
+    local total_supply=$(echo "$token_info_json" | jq -r '.data.total_supply // empty' 2>/dev/null)
+    
+    if [ "$name" = "Kudora Test Token" ] && [ "$symbol" = "KTK" ] && [ "$decimals" = "6" ] && [ "$total_supply" = "1000" ]; then
+        log_success "WASM token info correct: $name ($symbol), $decimals decimals, supply $total_supply"
+    else
+        log_fail "WASM token info mismatch: name=$name symbol=$symbol decimals=$decimals supply=$total_supply; response: $token_info_json"
+    fi
+    
+    set -e
+}
+
+test_wasm_cw20_transfer() {
+    log_test "WASM CW20 token transfer between accounts"
+    
+    set +e
+    
+    if [ -z "$WASM_CONTRACT_ADDR" ]; then
+        log_fail "WASM transfer test missing contract address (instantiate must run first)"
+        set -e
+        return
+    fi
+    
+    # Check initial balances
+    local user_balance_before
+    user_balance_before=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$USER_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local user_bal_before=$(echo "$user_balance_before" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    local validator_balance_before
+    validator_balance_before=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$VALIDATOR_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local validator_bal_before=$(echo "$validator_balance_before" | jq -r '.data.balance // "0"' 2>/dev/null)
+    
+    # Transfer 300 tokens from USER to VALIDATOR
+    local transfer_amount="300"
+    local transfer_msg="{\"transfer\":{\"recipient\":\"$VALIDATOR_ADDR\",\"amount\":\"$transfer_amount\"}}"
+    
+    local transfer_out
+    transfer_out=$($BINARY tx wasm execute "$WASM_CONTRACT_ADDR" "$transfer_msg" \
+        --from "$USER_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+    
+    local transfer_json=$(echo "$transfer_out" | sed -n '/^{/,$p')
+    if [ -z "$transfer_json" ]; then
+        log_fail "WASM transfer failed (non-JSON response): $transfer_out"
+        set -e
+        return
+    fi
+    
+    local transfer_code
+    if ! transfer_code=$(echo "$transfer_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "WASM transfer failed (invalid JSON): $transfer_out"
+        set -e
+        return
+    fi
+    
+    if [ "$transfer_code" != "0" ]; then
+        local raw_log=$(echo "$transfer_json" | jq -r '.raw_log // empty')
+        log_fail "WASM transfer failed with code: $transfer_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+    
+    sleep 3
+    
+    # Check final balances
+    local user_balance_after
+    user_balance_after=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$USER_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local user_bal_after=$(echo "$user_balance_after" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    local validator_balance_after
+    validator_balance_after=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$VALIDATOR_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local validator_bal_after=$(echo "$validator_balance_after" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    # Verify balances changed correctly
+    local expected_user=$((user_bal_before - transfer_amount))
+    local expected_validator=$((validator_bal_before + transfer_amount))
+    
+    if [ "$user_bal_after" = "$expected_user" ] && [ "$validator_bal_after" = "$expected_validator" ]; then
+        log_success "WASM transfer successful: $USER_NAME $user_bal_after (was $user_bal_before), $VALIDATOR_NAME $validator_bal_after (was $validator_bal_before)"
+    else
+        log_fail "WASM transfer balance mismatch: user expected $expected_user got $user_bal_after, validator expected $expected_validator got $validator_bal_after"
+    fi
+    
+    set -e
+}
+
+test_wasm_cw20_insufficient_funds() {
+    log_test "WASM CW20 transfer fails with insufficient balance"
+    
+    set +e
+    
+    if [ -z "$WASM_CONTRACT_ADDR" ]; then
+        log_fail "WASM insufficient funds test missing contract address (instantiate must run first)"
+        set -e
+        return
+    fi
+    
+    # Check current balance of validator (should be 300 from previous transfer)
+    local current_balance
+    current_balance=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$VALIDATOR_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local balance=$(echo "$current_balance" | jq -r '.data.balance // "0"' 2>/dev/null)
+    
+    # Try to transfer more than available balance
+    local excessive_amount="1000"
+    local transfer_msg="{\"transfer\":{\"recipient\":\"$USER_ADDR\",\"amount\":\"$excessive_amount\"}}"
+    
+    local transfer_out
+    transfer_out=$($BINARY tx wasm execute "$WASM_CONTRACT_ADDR" "$transfer_msg" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 1000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+    
+    # Check if error contains "insufficient" or similar
+    if echo "$transfer_out" | grep -qi "insufficient\|cannot subtract\|overflow"; then
+        log_success "WASM transfer correctly rejected (insufficient funds: balance=$balance, attempted=$excessive_amount)"
+        set -e
+        return
+    fi
+    
+    local transfer_json=$(echo "$transfer_out" | sed -n '/^{/,$p')
+    if [ -z "$transfer_json" ]; then
+        log_fail "WASM insufficient funds test produced unexpected output: $transfer_out"
+        set -e
+        return
+    fi
+    
+    local transfer_code
+    if ! transfer_code=$(echo "$transfer_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "WASM insufficient funds test invalid JSON: $transfer_out"
+        set -e
+        return
+    fi
+    
+    if [ "$transfer_code" = "0" ]; then
+        log_fail "WASM transfer with insufficient funds unexpectedly succeeded"
+    else
+        local raw_log=$(echo "$transfer_json" | jq -r '.raw_log // empty')
+        log_success "WASM transfer correctly rejected (code $transfer_code, balance=$balance, attempted=$excessive_amount)"
+    fi
+    
+    set -e
+}
+
+test_wasm_cw20_all_accounts() {
+    log_test "WASM CW20 verify all account balances"
+    
+    set +e
+    
+    if [ -z "$WASM_CONTRACT_ADDR" ]; then
+        log_fail "WASM all accounts test missing contract address (instantiate must run first)"
+        set -e
+        return
+    fi
+    
+    # Query all accounts and verify final state
+    local user_balance
+    user_balance=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$USER_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local user_bal=$(echo "$user_balance" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    local validator_balance
+    validator_balance=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" "{\"balance\":{\"address\":\"$VALIDATOR_ADDR\"}}" \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local validator_bal=$(echo "$validator_balance" | jq -r '.data.balance // empty' 2>/dev/null)
+    
+    # Get token info for total supply verification
+    local token_info
+    token_info=$($BINARY query wasm contract-state smart "$WASM_CONTRACT_ADDR" '{"token_info":{}}' \
+        --home "$HOME_DIR" \
+        --output json 2>/dev/null || true)
+    local total_supply=$(echo "$token_info" | jq -r '.data.total_supply // empty' 2>/dev/null)
+    
+    # Expected state after all transfers:
+    # - Initial: USER=1000, VALIDATOR=0
+    # - After transfer: USER=700, VALIDATOR=300
+    # - Failed transfer (insufficient funds) should not change balances
+    local expected_user="700"
+    local expected_validator="300"
+    local expected_total="1000"
+    
+    # Calculate actual total from all balances
+    local actual_total=$((user_bal + validator_bal))
+    
+    if [ "$user_bal" = "$expected_user" ] && [ "$validator_bal" = "$expected_validator" ] && [ "$total_supply" = "$expected_total" ] && [ "$actual_total" = "$expected_total" ]; then
+        log_success "WASM all accounts verified: user=$user_bal, validator=$validator_bal, total_supply=$total_supply (sum=$actual_total)"
+    else
+        log_fail "WASM account verification failed: user expected $expected_user got $user_bal, validator expected $expected_validator got $validator_bal, supply expected $expected_total got $total_supply (sum=$actual_total)"
+    fi
+    
+    set -e
+}
+
+test_wasm_tokenfactory_bindings() {
+    log_test "WASM tokenfactory bindings: create denom and mint"
+
+    set +e
+
+    if ! ensure_tokenfactory_wasm_artifact; then
+        set -e
+        return
+    fi
+
+    local artifact="$HOME_DIR/tokenfactory.wasm"
+
+    local store_out
+    store_out=$($BINARY tx wasm store "$artifact" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local store_json=$(echo "$store_out" | sed -n '/^{/,$p')
+    if [ -z "$store_json" ]; then
+        log_fail "Tokenfactory wasm store failed (non-JSON response): $store_out"
+        set -e
+        return
+    fi
+
+    local store_code
+    if ! store_code=$(echo "$store_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory wasm store failed (invalid JSON): $store_out"
+        set -e
+        return
+    fi
+
+    if [ "$store_code" != "0" ]; then
+        local raw_log=$(echo "$store_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory wasm store failed with code: $store_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    local store_txhash=$(echo "$store_json" | jq -r '.txhash // empty')
+    if [ -z "$store_txhash" ] || [ "$store_txhash" = "null" ]; then
+        log_fail "Tokenfactory wasm store missing txhash: $store_json"
+        set -e
+        return
+    fi
+
+    sleep 3
+
+    local store_tx_query
+    store_tx_query=$($BINARY query tx "$store_txhash" --home "$HOME_DIR" --output json 2>/dev/null || true)
+
+    local tf_code_id
+    tf_code_id=$(echo "$store_tx_query" | jq -r '.events[] | select(.type=="store_code") | .attributes[] | select(.key=="code_id") | .value' 2>/dev/null)
+    if [ -z "$tf_code_id" ] || [ "$tf_code_id" = "null" ]; then
+        log_fail "Tokenfactory wasm store did not return a code_id: $store_tx_query"
+        set -e
+        return
+    fi
+
+    local instantiate_out
+    instantiate_out=$($BINARY tx wasm instantiate "$tf_code_id" "{}" \
+        --label "tf-bindings" \
+        --no-admin \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local inst_json=$(echo "$instantiate_out" | sed -n '/^{/,$p')
+    if [ -z "$inst_json" ]; then
+        log_fail "Tokenfactory wasm instantiate failed (non-JSON response): $instantiate_out"
+        set -e
+        return
+    fi
+
+    local inst_code
+    if ! inst_code=$(echo "$inst_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory wasm instantiate failed (invalid JSON): $instantiate_out"
+        set -e
+        return
+    fi
+
+    if [ "$inst_code" != "0" ]; then
+        local raw_log=$(echo "$inst_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory wasm instantiate failed with code: $inst_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    local inst_txhash=$(echo "$inst_json" | jq -r '.txhash // empty')
+    if [ -z "$inst_txhash" ] || [ "$inst_txhash" = "null" ]; then
+        log_fail "Tokenfactory wasm instantiate missing txhash: $inst_json"
+        set -e
+        return
+    fi
+
+    sleep 3
+
+    local inst_tx_query
+    inst_tx_query=$($BINARY query tx "$inst_txhash" --home "$HOME_DIR" --output json 2>/dev/null || true)
+
+    local tf_contract_addr
+    tf_contract_addr=$(echo "$inst_tx_query" | jq -r '.events[] | select(.type=="instantiate") | .attributes[] | select(.key=="_contract_address" or .key=="contract_address") | .value' 2>/dev/null)
+    if [ -z "$tf_contract_addr" ] || [ "$tf_contract_addr" = "null" ]; then
+        log_fail "Tokenfactory wasm instantiate missing contract address: $inst_tx_query"
+        set -e
+        return
+    fi
+
+    # Fund the contract with denom creation fee so bindings can create denom
+    local denom_creation_fee
+    denom_creation_fee=$($BINARY query tokenfactory params --home "$HOME_DIR" --output json 2>/dev/null | jq -r '.params.denom_creation_fee[0].amount // "0"')
+    if [ -z "$denom_creation_fee" ] || [ "$denom_creation_fee" = "null" ]; then
+        denom_creation_fee="0"
+    fi
+
+    if [ "$denom_creation_fee" != "0" ]; then
+        local fund_out
+        fund_out=$($BINARY tx bank send "$VALIDATOR_NAME" "$tf_contract_addr" "${denom_creation_fee}${DENOM}" \
+            --chain-id "$CHAIN_ID" \
+            --keyring-backend "$KEYRING" \
+            --home "$HOME_DIR" \
+            --gas auto \
+            --gas-adjustment 1.5 \
+            --fees 500000000000000${DENOM} \
+            -y \
+            --output json 2>&1 || true)
+
+        local fund_json=$(echo "$fund_out" | sed -n '/^{/,$p')
+        local fund_code="0"
+        if [ -n "$fund_json" ]; then
+            fund_code=$(echo "$fund_json" | jq -r '.code // 0' 2>/dev/null)
+        fi
+        if [ "$fund_code" != "0" ]; then
+            local raw_log=$(echo "$fund_json" | jq -r '.raw_log // empty')
+            log_fail "Funding contract for denom fee failed with code: $fund_code ${raw_log:+- $raw_log}"
+            set -e
+            return
+        fi
+
+        sleep 4
+    fi
+
+    local subdenom="tfwasm"
+    local create_msg
+    create_msg=$(cat <<EOF
+{"create_denom":{"subdenom":"$subdenom"}}
+EOF
+    )
+
+    local create_out
+    create_out=$($BINARY tx wasm execute "$tf_contract_addr" "$create_msg" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local create_json=$(echo "$create_out" | sed -n '/^{/,$p')
+    if [ -z "$create_json" ]; then
+        log_fail "Tokenfactory wasm create_denom failed (non-JSON response): $create_out"
+        set -e
+        return
+    fi
+
+    local create_code
+    if ! create_code=$(echo "$create_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory wasm create_denom failed (invalid JSON): $create_out"
+        set -e
+        return
+    fi
+
+    if [ "$create_code" != "0" ]; then
+        local raw_log=$(echo "$create_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory wasm create_denom failed with code: $create_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    sleep 4
+
+    local denom="factory/${tf_contract_addr}/$subdenom"
+    local mint_amount="1000"
+    local mint_msg
+    mint_msg=$(cat <<EOF
+{"mint_tokens":{"denom":"$denom","amount":"$mint_amount","mint_to_address":"$VALIDATOR_ADDR"}}
+EOF
+    )
+
+    local mint_out
+    mint_out=$($BINARY tx wasm execute "$tf_contract_addr" "$mint_msg" \
+        --from "$VALIDATOR_NAME" \
+        --chain-id "$CHAIN_ID" \
+        --keyring-backend "$KEYRING" \
+        --home "$HOME_DIR" \
+        --gas auto \
+        --gas-adjustment 1.5 \
+        --fees 2000000000000000${DENOM} \
+        -y \
+        --output json 2>&1 || true)
+
+    local mint_json=$(echo "$mint_out" | sed -n '/^{/,$p')
+    if [ -z "$mint_json" ]; then
+        log_fail "Tokenfactory wasm mint failed (non-JSON response): $mint_out"
+        set -e
+        return
+    fi
+
+    local mint_code
+    if ! mint_code=$(echo "$mint_json" | jq -r '.code // 0' 2>/dev/null); then
+        log_fail "Tokenfactory wasm mint failed (invalid JSON): $mint_out"
+        set -e
+        return
+    fi
+
+    if [ "$mint_code" != "0" ]; then
+        local raw_log=$(echo "$mint_json" | jq -r '.raw_log // empty')
+        log_fail "Tokenfactory wasm mint failed with code: $mint_code ${raw_log:+- $raw_log}"
+        set -e
+        return
+    fi
+
+    sleep 4
+
+    local balances_json
+    balances_json=$($BINARY query bank balances "$VALIDATOR_ADDR" --home "$HOME_DIR" --output json 2>/dev/null)
+    local minted_balance=$(echo "$balances_json" | jq -r --arg denom "$denom" '.balances[] | select(.denom==$denom) | .amount' 2>/dev/null)
+
+    if [ "$minted_balance" = "$mint_amount" ]; then
+        log_success "Tokenfactory bindings OK via WASM: minted $minted_balance $denom to $VALIDATOR_ADDR"
+    else
+        log_fail "Tokenfactory bindings mismatch: expected $mint_amount got ${minted_balance:-none}; balances: $balances_json"
+    fi
+
+    set -e
+}
 
 main() {
     echo ""
@@ -660,6 +1322,18 @@ main() {
     test_json_rpc_block_number
     test_json_rpc_gas_price
     
+    echo ""
+    log_info "Running WASM tests..."
+    echo ""
+
+    # WASM tests
+    test_wasm_store_and_instantiate
+    test_wasm_cw20_token_info
+    test_wasm_cw20_transfer
+    test_wasm_cw20_insufficient_funds
+    test_wasm_cw20_all_accounts
+    test_wasm_tokenfactory_bindings
+
     echo ""
     log_info "Running transaction tests..."
     echo ""

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io"
 
+	"github.com/CosmWasm/wasmd/x/wasm"
+	wasmcli "github.com/CosmWasm/wasmd/x/wasm/client/cli"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -59,10 +61,14 @@ func initRootCmd(
 		txCommand(),
 		cosmosevmcmd.KeyCommands(app.DefaultNodeHome, false),
 	)
+	wasmcli.ExtendUnsafeResetAllCmd(rootCmd)
+
 }
 
 // addModuleInitFlags adds more flags to the start command.
 func addModuleInitFlags(startCmd *cobra.Command) {
+	wasm.AddModuleInitFlags(startCmd)
+
 }
 
 func queryCommand() *cobra.Command {

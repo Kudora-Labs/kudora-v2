@@ -1,40 +1,84 @@
 package app
 
 import (
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/evm/ante"
-	evmante "github.com/cosmos/evm/ante"
-	cosmosevmante "github.com/cosmos/evm/ante/evm"
-	cosmosevmtypes "github.com/cosmos/evm/types"
-	"github.com/ethereum/go-ethereum/common"
+	"errors"
 
-	appante "kudora/app/ante"
+	antehandlers "kudora/app/ante"
+
+	errorsmod "cosmossdk.io/errors"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	errortypes "github.com/cosmos/cosmos-sdk/types/errors"
+	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
 )
 
-// setAnteHandler sets the ante handler for the application.
-func (app *App) setAnteHandler(txConfig client.TxConfig, maxGasWanted uint64) {
-	options := ante.HandlerOptions{
-		Cdc:                    app.appCodec,
-		AccountKeeper:          app.AuthKeeper,
-		BankKeeper:             app.BankKeeper,
-		ExtensionOptionChecker: cosmosevmtypes.HasDynamicFeeExtensionOption,
-		EvmKeeper:              app.EVMKeeper,
-		FeegrantKeeper:         app.FeeGrantKeeper,
-		IBCKeeper:              app.IBCKeeper,
-		FeeMarketKeeper:        app.FeeMarketKeeper,
-		SignModeHandler:        txConfig.SignModeHandler(),
-		SigGasConsumer:         evmante.SigVerificationGasConsumer,
-		MaxTxGasWanted:         maxGasWanted,
-		TxFeeChecker:           cosmosevmante.NewDynamicFeeChecker(app.FeeMarketKeeper),
-		PendingTxListener: func(hash common.Hash) {
-			for _, listener := range app.pendingTxListeners {
-				listener(hash)
-			}
-		},
+// Re-export HandlerOptions locally for convenience within the app package.
+type HandlerOptions = antehandlers.HandlerOptions
+
+// NewAnteHandler constructor
+func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
+	if options.AccountKeeper == nil {
+		return nil, errors.New("account keeper is required for ante builder")
 	}
-	if err := options.Validate(); err != nil {
-		panic(err)
+	if options.BankKeeper == nil {
+		return nil, errors.New("bank keeper is required for ante builder")
+	}
+	if options.SignModeHandler == nil {
+		return nil, errors.New("sign mode handler is required for ante builder")
+	}
+	if options.ExtensionOptionChecker == nil {
+		return nil, errors.New("extension option checker is required for ante builder")
+	}
+	if options.TxFeeChecker == nil {
+		return nil, errors.New("tx fee checker is required for ante builder")
+	}
+	if options.SignatureGasConsumer == nil {
+		return nil, errors.New("sig gas consumer is required for ante builder")
+	}
+	if options.Cdc == nil {
+		return nil, errors.New("codec is required for ante builder")
+	}
+	if options.EvmKeeper == nil {
+		return nil, errors.New("evm keeper is required for ante builder")
+	}
+	if options.NodeConfig == nil {
+		return nil, errors.New("wasm config is required for ante builder")
+	}
+	if options.TXCounterStoreService == nil {
+		return nil, errors.New("wasm store service is required for ante builder")
+	}
+	if options.WasmKeeper == nil {
+		return nil, errors.New("wasm keeper is required for ante builder")
+	}
+	if options.CircuitKeeper == nil {
+		return nil, errors.New("circuit keeper is required for ante builder")
+	}
+	if options.IBCKeeper == nil {
+		return nil, errors.New("ibc keeper is required for ante builder")
 	}
 
-	app.SetAnteHandler(appante.NewAnteHandler(options))
+	cosmosAnteHandler := antehandlers.NewCosmosAnteHandler(options)
+	evmAnteHandler := antehandlers.NewMonoEVMAnteHandler(options)
+
+	return func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+		txWithExtensions, ok := tx.(authante.HasExtensionOptionsTx)
+		if ok {
+			opts := txWithExtensions.GetExtensionOptions()
+			if len(opts) > 0 {
+				switch typeURL := opts[0].GetTypeUrl(); typeURL {
+				case "/cosmos.evm.vm.v1.ExtensionOptionsEthereumTx":
+					return evmAnteHandler(ctx, tx, simulate)
+				case "/cosmos.evm.types.v1.ExtensionOptionDynamicFeeTx":
+					return cosmosAnteHandler(ctx, tx, simulate)
+				default:
+					return ctx, errorsmod.Wrapf(
+						errortypes.ErrUnknownExtensionOptions,
+						"rejecting tx with unsupported extension option: %s", typeURL,
+					)
+				}
+			}
+		}
+
+		return cosmosAnteHandler(ctx, tx, simulate)
+	}, nil
 }
