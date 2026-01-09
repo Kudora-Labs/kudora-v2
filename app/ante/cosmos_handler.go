@@ -3,7 +3,7 @@ package ante
 import (
 	circuitante "cosmossdk.io/x/circuit/ante"
 	cosmosante "github.com/cosmos/evm/ante/cosmos"
-	evmanute "github.com/cosmos/evm/ante/evm"
+	evmante "github.com/cosmos/evm/ante/evm"
 	evmtypes "github.com/cosmos/evm/x/vm/types"
 	ibcante "github.com/cosmos/ibc-go/v10/modules/core/ante"
 
@@ -42,7 +42,7 @@ func NewCosmosAnteHandler(options HandlerOptions) sdk.AnteHandler {
 		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
 		ibcante.NewRedundantRelayDecorator(options.IBCKeeper),
-		evmanute.NewGasWantedDecorator(options.EvmKeeper, options.FeeMarketKeeper),
+		evmante.NewGasWantedDecorator(options.EvmKeeper, options.FeeMarketKeeper),
 	)
 
 	return sdk.ChainAnteDecorators(decorators...)
