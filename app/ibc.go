@@ -16,6 +16,11 @@ import (
 	ibctransferevm "github.com/cosmos/evm/x/ibc/transfer"
 	ibctransferkeeper "github.com/cosmos/evm/x/ibc/transfer/keeper"
 	ibctransferv2evm "github.com/cosmos/evm/x/ibc/transfer/v2"
+	"github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v10/packetforward"
+	packetforwardkeeper "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v10/packetforward/keeper"
+	packetforwardtypes "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v10/packetforward/types"
+	ratelimit "github.com/cosmos/ibc-apps/modules/rate-limiting/v10"
+	ratelimittypes "github.com/cosmos/ibc-apps/modules/rate-limiting/v10/types"
 	icamodule "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts"
 	icacontroller "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/controller"
 	icacontrollerkeeper "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/controller/keeper"
@@ -36,8 +41,6 @@ import (
 	solomachine "github.com/cosmos/ibc-go/v10/modules/light-clients/06-solomachine"
 	ibctm "github.com/cosmos/ibc-go/v10/modules/light-clients/07-tendermint"
 	bindings "github.com/cosmos/tokenfactory/x/tokenfactory/bindings"
-	packetforwardtypes "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v10/packetforward/types"
-	ratelimittypes "github.com/cosmos/ibc-apps/modules/rate-limiting/v10/types"
 )
 
 // registerIBCModules register IBC keepers and non dependency inject modules.
@@ -89,6 +92,10 @@ func (app *App) registerIBCModules(appOpts servertypes.AppOptions) error {
 		govModuleAddr,
 	)
 
+	if err := app.initIBCMiddlewareKeepers(); err != nil {
+        return err
+    }
+
 	// Create interchain account keepers
 	app.ICAHostKeeper = icahostkeeper.NewKeeper(
 		app.appCodec,
@@ -112,39 +119,9 @@ func (app *App) registerIBCModules(appOpts servertypes.AppOptions) error {
 		govModuleAddr,
 	)
 
-	// create IBC module from bottom to top of stack
-	var (
-		transferStack      porttypes.IBCModule = ibctransferevm.NewIBCModule(app.TransferKeeper)
-		transferStackV2    ibcapi.IBCModule    = ibctransferv2evm.NewIBCModule(app.TransferKeeper)
-		icaControllerStack porttypes.IBCModule = icacontroller.NewIBCMiddleware(app.ICAControllerKeeper)
-		icaHostStack       porttypes.IBCModule = icahost.NewIBCModule(app.ICAHostKeeper)
-	)
-
-	// add evm capabilities
-	transferStack = erc20.NewIBCMiddleware(app.Erc20Keeper, transferStack)
-	transferStackV2 = erc20v2.NewIBCMiddleware(transferStackV2, app.Erc20Keeper)
-
-	// create IBC v1 router, add transfer route, then set it on the keeper
-	ibcRouter := porttypes.NewRouter().
-		AddRoute(ibctransfertypes.ModuleName, transferStack).
-		AddRoute(icacontrollertypes.SubModuleName, icaControllerStack).
-		AddRoute(icahosttypes.SubModuleName, icaHostStack)
-
-	// create IBC v2 router, add transfer route, then set it on the keeper
-	ibcv2Router := ibcapi.NewRouter().
-		AddRoute(ibctransfertypes.PortID, transferStackV2)
-
-	wasmOpts := bindings.RegisterCustomPlugins(app.BankKeeper, &app.TokenFactoryKeeper)
-	wasmStack, err := app.registerWasmModules(appOpts, wasmOpts...)
-	if err != nil {
-		return err
-	}
-	ibcRouter.AddRoute(wasmtypes.ModuleName, wasmStack)
-
+	app.configureIBCMiddlewareStacks(appOpts)
+	
 	// this line is used by starport scaffolding # ibc/app/module
-
-	app.IBCKeeper.SetRouter(ibcRouter)
-	app.IBCKeeper.SetRouterV2(ibcv2Router)
 
 	clientKeeper := app.IBCKeeper.ClientKeeper
 	storeProvider := clientKeeper.GetStoreProvider()
@@ -162,6 +139,11 @@ func (app *App) registerIBCModules(appOpts servertypes.AppOptions) error {
 		icamodule.NewAppModule(&app.ICAControllerKeeper, &app.ICAHostKeeper),
 		ibctm.NewAppModule(tmLightClientModule),
 		solomachine.NewAppModule(soloLightClientModule),
+		packetforward.NewAppModule(
+     		app.PacketForwardKeeper,
+        	app.GetSubspace(packetforwardtypes.ModuleName),
+    	),
+    	ratelimit.NewAppModule(app.appCodec, *app.RateLimitKeeper),
 	); err != nil {
 		return err
 	}
@@ -190,4 +172,89 @@ func RegisterIBC(cdc codec.Codec) map[string]appmodule.AppModule {
 	}
 
 	return modules
+}
+
+// configureIBCMiddlewareStacks configures IBC middleware stacks for both IBC v1 (Classic) and v2 (Eureka)
+func (app *App) configureIBCMiddlewareStacks(appOpts servertypes.AppOptions) {
+	// =========================================
+	// IBC Classic (v1) Transfer Stack
+	// Order: ERC20 -> RateLimit -> PFM -> Transfer
+	// =========================================
+	
+	// Layer 1 (Bottom): Transfer base application
+	// Using cosmos/evm transfer module for ERC20 compatibility
+	var transferStack porttypes.IBCModule
+	transferStack = ibctransferevm.NewIBCModule(app.TransferKeeper)
+	
+	// Layer 2: Packet Forward Middleware
+	// Enables multi-hop transfers (A -> B -> C)
+	transferStack = packetforward.NewIBCMiddleware(
+		transferStack,
+		app.PacketForwardKeeper,
+		0, // Number of retries on timeout (0 = no retries)
+		packetforwardkeeper.DefaultForwardTransferPacketTimeoutTimestamp,
+	)
+	
+	// Layer 3: Rate Limit Middleware
+	// Protects against bridge exploits
+	transferStack = ratelimit.NewIBCMiddleware(
+		*app.RateLimitKeeper,
+		transferStack,
+	)
+	
+	// Layer 4 (Top): ERC20 Middleware
+	// Converts IBC tokens to ERC20 representation
+	// MUST be outermost to execute AFTER ICS20 OnRecvPacket
+	transferStack = erc20.NewIBCMiddleware(
+		app.Erc20Keeper,
+		transferStack,
+	)
+	
+	// =========================================
+	// IBC Classic (v1) ICA Stacks
+	// =========================================
+	
+	// ICA Controller Stack
+	var icaControllerStack porttypes.IBCModule
+	icaControllerStack = icacontroller.NewIBCMiddleware(app.ICAControllerKeeper)
+	
+	// ICA Host Stack
+	var icaHostStack porttypes.IBCModule
+	icaHostStack = icahost.NewIBCModule(app.ICAHostKeeper)
+	
+	// =========================================
+	// Wasm IBC Stack
+	// =========================================
+	wasmOpts := bindings.RegisterCustomPlugins(app.BankKeeper, &app.TokenFactoryKeeper)
+	wasmStack, err := app.registerWasmModules(appOpts, wasmOpts...)
+	if err != nil {
+		panic(err)
+	}
+	
+	// =========================================
+	// Configure IBC v1 Router
+	// =========================================
+	ibcRouter := porttypes.NewRouter().
+		AddRoute(ibctransfertypes.ModuleName, transferStack).
+		AddRoute(icacontrollertypes.SubModuleName, icaControllerStack).
+		AddRoute(icahosttypes.SubModuleName, icaHostStack).
+		AddRoute(wasmtypes.ModuleName, wasmStack)
+	
+	app.IBCKeeper.SetRouter(ibcRouter)
+	
+	// =========================================
+	// IBC v2 (Eureka) Transfer Stack
+	// Note: PFM and RateLimit do NOT support IBC v2 yet
+	// =========================================
+	var transferStackV2 ibcapi.IBCModule
+	transferStackV2 = ibctransferv2evm.NewIBCModule(app.TransferKeeper)
+	
+	// Add ERC20 v2 middleware
+	transferStackV2 = erc20v2.NewIBCMiddleware(transferStackV2, app.Erc20Keeper)
+	
+	// Configure IBC v2 Router
+	ibcv2Router := ibcapi.NewRouter().
+		AddRoute(ibctransfertypes.PortID, transferStackV2)
+	
+	app.IBCKeeper.SetRouterV2(ibcv2Router)
 }

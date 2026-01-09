@@ -74,6 +74,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	tokenfactorytypes "github.com/cosmos/tokenfactory/x/tokenfactory/types"
+	packetforwardtypes "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v10/packetforward/types"
+	ratelimittypes "github.com/cosmos/ibc-apps/modules/rate-limiting/v10/types"
 )
 
 var (
@@ -91,6 +93,7 @@ var (
 		{Account: erc20types.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: feemarkettypes.ModuleName},
 		{Account: tokenfactorytypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
+		{Account: packetforwardtypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		// blocked account addresses
 		{Account: wasmtypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}}}
 	blockAccAddrs = []string{
@@ -137,6 +140,8 @@ var (
 						feemarkettypes.ModuleName,
 						evmtypes.ModuleName,
 						tokenfactorytypes.ModuleName,
+						packetforwardtypes.ModuleName,
+    					ratelimittypes.ModuleName,
 						wasmtypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 					},
@@ -151,6 +156,8 @@ var (
 						feemarkettypes.ModuleName,
 						evmtypes.ModuleName,
 						tokenfactorytypes.ModuleName,
+						packetforwardtypes.ModuleName,
+    					ratelimittypes.ModuleName,
 						wasmtypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
 					},
@@ -187,6 +194,8 @@ var (
 						ibcexported.ModuleName,
 						ibctransfertypes.ModuleName,
 						icatypes.ModuleName,
+						packetforwardtypes.ModuleName,
+    					ratelimittypes.ModuleName,
 						// chain modules
 						// cosmos evm modules
 						erc20types.ModuleName,
