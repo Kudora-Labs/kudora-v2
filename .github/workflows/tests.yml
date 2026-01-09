@@ -40,8 +40,8 @@ jobs:
 
       - name: Build kudorad binary
         run: |
-          make build
-          echo "$(pwd)/build" >> $GITHUB_PATH
+          make install
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Run chain tests
         run: ./scripts/test_chain.sh
