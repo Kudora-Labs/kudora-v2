@@ -59,6 +59,9 @@ import (
 
 	tokenfactorykeeper "github.com/cosmos/tokenfactory/x/tokenfactory/keeper"
 
+	packetforwardkeeper "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v10/packetforward/keeper"
+	ratelimitkeeper "github.com/cosmos/ibc-apps/modules/rate-limiting/v10/keeper"
+
 	"kudora/docs"
 )
 
@@ -110,6 +113,8 @@ type App struct {
 	ICAControllerKeeper icacontrollerkeeper.Keeper
 	ICAHostKeeper       icahostkeeper.Keeper
 	TransferKeeper      ibctransferkeeper.Keeper
+	PacketForwardKeeper *packetforwardkeeper.Keeper
+	RateLimitKeeper     *ratelimitkeeper.Keeper
 
 	// token factory keeper
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
@@ -124,6 +129,7 @@ type App struct {
 	Erc20Keeper        erc20keeper.Keeper
 	EVMMempool         *evmmempool.ExperimentalEVMMempool
 	WasmKeeper         wasmkeeper.Keeper
+
 }
 
 func init() {
