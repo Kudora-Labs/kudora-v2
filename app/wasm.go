@@ -11,7 +11,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/runtime"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	"github.com/cosmos/cosmos-sdk/x/auth/posthandler"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
@@ -140,31 +139,27 @@ func (app *App) setAnteHandler(appOpts servertypes.AppOptions, txConfig client.T
 
 	anteHandler, err := NewAnteHandler(
 		HandlerOptions{
-			HandlerOptions: ante.HandlerOptions{
-				AccountKeeper:          app.AuthKeeper,
-				BankKeeper:             app.BankKeeper,
-				SignModeHandler:        txConfig.SignModeHandler(),
-				FeegrantKeeper:         app.FeeGrantKeeper,
-				ExtensionOptionChecker: evmtypes.HasDynamicFeeExtensionOption,
-				SigGasConsumer:         evmante.SigVerificationGasConsumer,
-			},
-			AccountKeeper:   app.AuthKeeper,
-			Cdc:             app.appCodec,
-			EvmKeeper:       app.EVMKeeper,
-			FeeMarketKeeper: app.FeeMarketKeeper,
-			MaxTxGasWanted:  maxGasWanted,
-			TxFeeChecker:    evmdecorators.NewDynamicFeeChecker(app.FeeMarketKeeper),
+			AccountKeeper:          app.AuthKeeper,
+			BankKeeper:             app.BankKeeper,
+			SignModeHandler:        txConfig.SignModeHandler(),
+			FeegrantKeeper:         app.FeeGrantKeeper,
+			ExtensionOptionChecker: evmtypes.HasDynamicFeeExtensionOption,
+			SignatureGasConsumer:   evmante.SigVerificationGasConsumer,
+			Cdc:                    app.appCodec,
+			EvmKeeper:              app.EVMKeeper,
+			FeeMarketKeeper:        app.FeeMarketKeeper,
+			MaxTxGasWanted:         maxGasWanted,
+			TxFeeChecker:           evmdecorators.NewDynamicFeeChecker(app.FeeMarketKeeper),
 			PendingTxListener: func(hash common.Hash) {
 				for _, listener := range app.pendingTxListeners {
 					listener(hash)
 				}
 			},
-			ExtensionOptionChecker: evmtypes.HasDynamicFeeExtensionOption,
-			IBCKeeper:              app.IBCKeeper,
-			NodeConfig:             &wasmConfig,
-			WasmKeeper:             &app.WasmKeeper,
-			TXCounterStoreService:  runtime.NewKVStoreService(txCounterStoreKey),
-			CircuitKeeper:          &app.CircuitBreakerKeeper,
+			IBCKeeper:             app.IBCKeeper,
+			NodeConfig:            &wasmConfig,
+			WasmKeeper:            &app.WasmKeeper,
+			TXCounterStoreService: runtime.NewKVStoreService(txCounterStoreKey),
+			CircuitKeeper:         &app.CircuitBreakerKeeper,
 		},
 	)
 	if err != nil {

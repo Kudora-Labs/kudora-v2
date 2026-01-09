@@ -1,9 +1,9 @@
 package ante
 
 import (
-	baseevmante "github.com/cosmos/evm/ante"
+	circuitante "cosmossdk.io/x/circuit/ante"
 	cosmosante "github.com/cosmos/evm/ante/cosmos"
-	evmante "github.com/cosmos/evm/ante/evm"
+	evmanute "github.com/cosmos/evm/ante/evm"
 	evmtypes "github.com/cosmos/evm/x/vm/types"
 	ibcante "github.com/cosmos/ibc-go/v10/modules/core/ante"
 
@@ -12,15 +12,23 @@ import (
 	sdkvesting "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 )
 
-// newCosmosAnteHandler creates the default ante handler for Cosmos transactions
-func newCosmosAnteHandler(options baseevmante.HandlerOptions) sdk.AnteHandler {
-	return sdk.ChainAnteDecorators(
-		cosmosante.NewRejectMessagesDecorator(), // reject MsgEthereumTxs
-		cosmosante.NewAuthzLimiterDecorator( // disable the Msg types that cannot be included on an authz.MsgExec msgs field
+// NewCosmosAnteHandler creates the ante chain for non-EVM transactions, enriched with WASM decorators.
+func NewCosmosAnteHandler(options HandlerOptions) sdk.AnteHandler {
+	decorators := []sdk.AnteDecorator{
+		cosmosante.NewRejectMessagesDecorator(),
+		cosmosante.NewAuthzLimiterDecorator(
 			sdk.MsgTypeURL(&evmtypes.MsgEthereumTx{}),
 			sdk.MsgTypeURL(&sdkvesting.MsgCreateVestingAccount{}),
 		),
 		ante.NewSetUpContextDecorator(),
+	}
+
+	// WASM-specific decorators first so simulation limits and gas bookkeeping run early.
+	decorators = append(decorators, wasmDecorators(options)...)
+
+	// Core ante flow.
+	decorators = append(decorators,
+		circuitante.NewCircuitBreakerDecorator(options.CircuitKeeper),
 		ante.NewExtensionOptionsDecorator(options.ExtensionOptionChecker),
 		ante.NewValidateBasicDecorator(),
 		ante.NewTxTimeoutHeightDecorator(),
@@ -28,13 +36,14 @@ func newCosmosAnteHandler(options baseevmante.HandlerOptions) sdk.AnteHandler {
 		cosmosante.NewMinGasPriceDecorator(options.FeeMarketKeeper, options.EvmKeeper),
 		ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper),
 		ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker),
-		// SetPubKeyDecorator must be called before all signature verification decorators
 		ante.NewSetPubKeyDecorator(options.AccountKeeper),
 		ante.NewValidateSigCountDecorator(options.AccountKeeper),
-		ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SigGasConsumer),
+		ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SignatureGasConsumer),
 		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
 		ibcante.NewRedundantRelayDecorator(options.IBCKeeper),
-		evmante.NewGasWantedDecorator(options.EvmKeeper, options.FeeMarketKeeper),
+		evmanute.NewGasWantedDecorator(options.EvmKeeper, options.FeeMarketKeeper),
 	)
+
+	return sdk.ChainAnteDecorators(decorators...)
 }
