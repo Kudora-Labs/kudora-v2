@@ -95,6 +95,10 @@ func RegisterRateLimit(codec codec.Codec) map[string]appmodule.AppModule{
         ),
     }
 
+    // Ensure ratelimit message types are registered for JSON (Any) decoding.
+    // The ratelimit module doesn't support depinject yet, so we register interfaces manually.
+    ratelimittypes.RegisterInterfaces(codec.InterfaceRegistry())
+
     // Register interfaces for proper encoding/decoding
     for _, m := range modules {
         if mr, ok := m.(interface {
