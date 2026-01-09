@@ -38,6 +38,8 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/protobuf v1.36.11
+	// IBC Middleware 
+	github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v10 v10.1.0
 )
 
 require (
