@@ -55,7 +55,7 @@ install:
 	@echo "--> ensure dependencies have not been modified"
 	@go mod verify
 	@echo "--> installing $(APPNAME)d"
-	@go install -tags=purego $(BUILD_FLAGS) -mod=readonly ./cmd/$(APPNAME)d
+	@go install $(BUILD_FLAGS) -mod=readonly ./cmd/$(APPNAME)d
 
 .PHONY: all install
 
