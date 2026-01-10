@@ -30,7 +30,7 @@ LOG_LEVEL="${LOG_LEVEL:-info}"
 CHAIN_A_ID="${CHAIN_A_ID:-kudora_12000-1}"
 CHAIN_B_ID="${CHAIN_B_ID:-kudora_9000-1}"
 
-WORKDIR="${WORKDIR:-$(mktemp -d -t kudora-ibc-test.XXXXXX)}"
+WORKDIR="${WORKDIR:-$(mktemp -d)}"
 KEEP="${KEEP:-0}"
 
 HOME_A="$WORKDIR/chain-a"
@@ -164,30 +164,30 @@ set_chain_ports() {
 	local pprof_port="$9"
 
 	# cometbft config
-	sed -i'' -e "s#tcp://127.0.0.1:26657#tcp://127.0.0.1:${rpc_port}#g" "$home_dir/config/config.toml"
-	sed -i'' -e "s#tcp://0.0.0.0:26656#tcp://0.0.0.0:${p2p_port}#g" "$home_dir/config/config.toml"
-	sed -i'' -e "s#tcp://127.0.0.1:26658#tcp://127.0.0.1:${app_port}#g" "$home_dir/config/config.toml"
-	sed -i'' -e "s#localhost:6060#localhost:${pprof_port}#g" "$home_dir/config/config.toml"
-	sed -i'' -e "s#:\\?26660#:${prom_port}#g" "$home_dir/config/config.toml" || true
+	sed -i.bak -e "s#tcp://127.0.0.1:26657#tcp://127.0.0.1:${rpc_port}#g" "$home_dir/config/config.toml"
+	sed -i.bak -e "s#tcp://0.0.0.0:26656#tcp://0.0.0.0:${p2p_port}#g" "$home_dir/config/config.toml"
+	sed -i.bak -e "s#tcp://127.0.0.1:26658#tcp://127.0.0.1:${app_port}#g" "$home_dir/config/config.toml"
+	sed -i.bak -e "s#localhost:6060#localhost:${pprof_port}#g" "$home_dir/config/config.toml"
+	sed -i.bak -e "s#:\\?26660#:${prom_port}#g" "$home_dir/config/config.toml" || true
 
 	# faster blocks for local testing
-	sed -i'' -e 's/timeout_commit = ".*"/timeout_commit = "1s"/' "$home_dir/config/config.toml"
+	sed -i.bak -e 's/timeout_commit = ".*"/timeout_commit = "1s"/' "$home_dir/config/config.toml"
 
 	# app config
   # API and gRPC default to localhost on many Cosmos SDK configs; rewrite both forms.
-  sed -i'' -E "s#address = \"tcp://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):1317\"#address = \"tcp://0.0.0.0:${api_port}\"#g" "$home_dir/config/app.toml" || true
-  sed -i'' -E "s#address = \"(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):9090\"#address = \"0.0.0.0:${grpc_port}\"#g" "$home_dir/config/app.toml" || true
+  sed -i.bak -E "s#address = \"tcp://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):1317\"#address = \"tcp://0.0.0.0:${api_port}\"#g" "$home_dir/config/app.toml" || true
+  sed -i.bak -E "s#address = \"(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):9090\"#address = \"0.0.0.0:${grpc_port}\"#g" "$home_dir/config/app.toml" || true
   # For older SDKs / custom configs that embed raw endpoints.
-  sed -i'' -e "s#tcp://0.0.0.0:1317#tcp://0.0.0.0:${api_port}#g" "$home_dir/config/app.toml" || true
-  sed -i'' -e "s#tcp://localhost:1317#tcp://0.0.0.0:${api_port}#g" "$home_dir/config/app.toml" || true
-  sed -i'' -e "s#0.0.0.0:9090#0.0.0.0:${grpc_port}#g" "$home_dir/config/app.toml" || true
-  sed -i'' -e "s#localhost:9090#0.0.0.0:${grpc_port}#g" "$home_dir/config/app.toml" || true
-  sed -i'' -e "s#0.0.0.0:9091#0.0.0.0:${grpc_web_port}#g" "$home_dir/config/app.toml" || true
-  sed -i'' -e "s#localhost:9091#0.0.0.0:${grpc_web_port}#g" "$home_dir/config/app.toml" || true
+  sed -i.bak -e "s#tcp://0.0.0.0:1317#tcp://0.0.0.0:${api_port}#g" "$home_dir/config/app.toml" || true
+  sed -i.bak -e "s#tcp://localhost:1317#tcp://0.0.0.0:${api_port}#g" "$home_dir/config/app.toml" || true
+  sed -i.bak -e "s#0.0.0.0:9090#0.0.0.0:${grpc_port}#g" "$home_dir/config/app.toml" || true
+  sed -i.bak -e "s#localhost:9090#0.0.0.0:${grpc_port}#g" "$home_dir/config/app.toml" || true
+  sed -i.bak -e "s#0.0.0.0:9091#0.0.0.0:${grpc_web_port}#g" "$home_dir/config/app.toml" || true
+  sed -i.bak -e "s#localhost:9091#0.0.0.0:${grpc_web_port}#g" "$home_dir/config/app.toml" || true
 
   # Set minimum gas prices - use a very low value compatible with EVM
-  sed -i'' -e 's/minimum-gas-prices = "[^"]*"/minimum-gas-prices = "1kud"/' "$home_dir/config/app.toml"
-  sed -i'' -e 's/^minimum-gas-prices.*$/minimum-gas-prices = "1kud"/' "$home_dir/config/app.toml"
+  sed -i.bak -e 's/minimum-gas-prices = "[^"]*"/minimum-gas-prices = "1kud"/' "$home_dir/config/app.toml"
+  sed -i.bak -e 's/^minimum-gas-prices.*$/minimum-gas-prices = "1kud"/' "$home_dir/config/app.toml"
 }
 
 init_chain() {
