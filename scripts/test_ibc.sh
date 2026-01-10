@@ -63,15 +63,42 @@ CHAIN_B_EVM_ID=9000
 VAL_NAME="validator"
 USER_NAME="testuser"
 
+# Colors and Formatting
+BOLD="\033[1m"
+RESET="\033[0m"
+GREEN="\033[0;32m"
+BLUE="\033[0;34m"
+YELLOW="\033[0;33m"
+RED="\033[0;31m"
+CYAN="\033[0;36m"
+
 require_cmd() {
 	if ! command -v "$1" >/dev/null 2>&1; then
-		echo "[error] missing required command: $1" >&2
+		echo -e "${RED}[error] missing required command: $1${RESET}" >&2
 		exit 1
 	fi
 }
 
 log() {
-	echo "[$(date +%H:%M:%S)] $*"
+	echo -e "${BLUE}[INFO]${RESET} $*"
+}
+
+log_step() {
+	echo -e "\n${BOLD}${CYAN}➜ $*${RESET}"
+}
+
+log_success() {
+	echo -e "${GREEN}✔ $*${RESET}"
+}
+
+log_error() {
+	echo -e "${RED}✘ $*${RESET}"
+}
+
+log_debug() {
+  if [ "${LOG_LEVEL}" = "debug" ]; then
+	  echo -e "${YELLOW}[DEBUG] $*${RESET}"
+  fi
 }
 
 cleanup() {
@@ -93,6 +120,7 @@ wait_for_rpc() {
 	local max_attempts=60
 	local attempt=0
 
+	log "Waiting for RPC on port ${rpc_port}..."
 	while [ $attempt -lt $max_attempts ]; do
 		if curl -s "http://127.0.0.1:${rpc_port}/status" >/dev/null 2>&1; then
 			return 0
@@ -101,7 +129,7 @@ wait_for_rpc() {
 		sleep 1
 	done
 
-	echo "[error] node rpc not ready on port ${rpc_port} after ${max_attempts}s" >&2
+	log_error "node rpc not ready on port ${rpc_port} after ${max_attempts}s" >&2
 	return 1
 }
 
@@ -111,6 +139,7 @@ wait_for_account() {
 	local max_attempts=60
 	local attempt=0
 
+	log "Waiting for account ${addr}..."
 	while [ $attempt -lt $max_attempts ]; do
 		if "$BINARY" q auth account "$addr" --node "$node_rpc" >/dev/null 2>&1; then
 			return 0
@@ -119,7 +148,7 @@ wait_for_account() {
 		sleep 1
 	done
 
-	echo "[error] account ${addr} not found on ${node_rpc} after ${max_attempts}s" >&2
+	log_error "account ${addr} not found on ${node_rpc} after ${max_attempts}s" >&2
 	return 1
 }
 
@@ -282,7 +311,7 @@ fund_relayer_on_chain() {
   local relayer_addr="$4"
 
   local output
-  echo "[DEBUG] Funding $relayer_addr on $chain_id from $USER_NAME" >&2
+  log_debug "Funding $relayer_addr on $chain_id from $USER_NAME"
   output=$("$BINARY" tx bank send \
     "$USER_NAME" \
     "$relayer_addr" \
@@ -297,29 +326,27 @@ fund_relayer_on_chain() {
     --gas auto \
     --gas-adjustment 1.3 \
     -y \
-    -o json) || {
+    -o json 2>/dev/null) || {
     exitcode=$?
-    echo "[ERROR] Bank send command failed with exit code $exitcode" >&2
-    echo "$output" >&2
+    log_error "Bank send command failed with exit code $exitcode"
     return 1
   }
   
-  echo "[DEBUG] Funding tx output:" >&2
-  echo "$output" >&2
+  log_debug "Funding tx output: $output"
 
   local txhash
   txhash=$(echo "$output" | jq -r '.txhash // empty')
   if [ -z "$txhash" ]; then
-    echo "[error] failed to extract txhash from funding tx output" >&2
-    echo "$output" >&2
+    log_error "failed to extract txhash from funding tx output"
+    log_debug "$output"
     return 1
   fi
   # Check if tx was rejected at broadcast time
   local code_at_broadcast
   code_at_broadcast=$(echo "$output" | jq -r '.code // 0')
   if [ "$code_at_broadcast" != "0" ]; then
-    echo "[error] funding tx rejected at broadcast" >&2
-    echo "$output" | jq '.' >&2
+    log_error "funding tx rejected at broadcast"
+    log_debug "$output"
     return 1
   fi
   # Wait for tx to be included in a block
@@ -332,10 +359,11 @@ fund_relayer_on_chain() {
       local code
       code=$(echo "$tx_result" | jq -r '.code // 1')
       if [ "$code" = "0" ]; then
+		log_success "Funded relayer on $chain_id ($relayer_addr)"
         return 0
       else
-        echo "[error] funding tx failed with code $code" >&2
-        echo "$tx_result" | jq '.' >&2
+        log_error "funding tx failed with code $code"
+        log_debug "$tx_result"
         return 1
       fi
     fi
@@ -343,7 +371,7 @@ fund_relayer_on_chain() {
     sleep 2
   done
 
-  echo "[error] funding tx ${txhash} not confirmed after ${max_wait}s" >&2
+  log_error "funding tx ${txhash} not confirmed after ${max_wait}s"
   return 1
 }
 
@@ -354,22 +382,23 @@ main() {
 
   log "Workdir: $WORKDIR"
 
-  log "Initializing chain A (${CHAIN_A_ID})"
+  log_step "Initializing chain A (${CHAIN_A_ID})"
   init_chain "$HOME_A" "$CHAIN_A_ID"
   set_chain_ports "$HOME_A" "$RPC_A" "$P2P_A" "$APP_A" "$API_A" "$GRPC_A" "$GRPC_WEB_A" "$PROM_A" "$PPROF_A"
 
-  log "Initializing chain B (${CHAIN_B_ID})"
+  log_step "Initializing chain B (${CHAIN_B_ID})"
   init_chain "$HOME_B" "$CHAIN_B_ID"
   set_chain_ports "$HOME_B" "$RPC_B" "$P2P_B" "$APP_B" "$API_B" "$GRPC_B" "$GRPC_WEB_B" "$PROM_B" "$PPROF_B"
 
-  log "Starting both chains"
+  log_step "Starting both chains"
   start_chain "$HOME_A" "$CHAIN_A_EVM_ID" "$WORKDIR/chain-a.log"
   start_chain "$HOME_B" "$CHAIN_B_EVM_ID" "$WORKDIR/chain-b.log"
 
   wait_for_rpc "$RPC_A"
   wait_for_rpc "$RPC_B"
+  log_success "Chains started and RPC ready"
 
-  log "Setting up relayer config (rly via 'go run' if needed)"
+  log_step "Setting up relayer config"
 
   # Define rly wrapper and configure chains/keys
   eval "$(rly_setup)"
@@ -389,7 +418,7 @@ main() {
   relayer_addr_a=$(rly chains address "${CHAIN_A_ID}")
   relayer_addr_b=$(rly chains address "${CHAIN_B_ID}")
 
-  log "Funding relayer accounts"
+  log_step "Funding relayer accounts"
   fund_relayer_on_chain "$HOME_A" "$CHAIN_A_ID" "http://127.0.0.1:${RPC_A}" "$relayer_addr_a"
   fund_relayer_on_chain "$HOME_B" "$CHAIN_B_ID" "http://127.0.0.1:${RPC_B}" "$relayer_addr_b"
 
@@ -397,28 +426,41 @@ main() {
   wait_for_account "http://127.0.0.1:${RPC_B}" "$relayer_addr_b"
 
   local path_name="kudora-local"
-  log "Creating IBC path: $path_name"
-  rly paths new "${CHAIN_A_ID}" "${CHAIN_B_ID}" "$path_name" --src-port transfer --dst-port transfer >/dev/null
+  log_step "Creating IBC path: $path_name"
+  if output=$(rly paths new "${CHAIN_A_ID}" "${CHAIN_B_ID}" "$path_name" --src-port transfer --dst-port transfer 2>&1); then
+    :
+  else
+    log_error "Failed to create IBC path"
+    echo "$output" >&2
+    exit 1
+  fi
 
-  log "Linking chains (create clients/connection/channel)"
-  rly tx link "$path_name" --src-port transfer --dst-port transfer >/dev/null
+  log_step "Linking chains (create clients/connection/channel)"
+  if output=$(rly tx link "$path_name" --src-port transfer --dst-port transfer 2>&1); then
+    log_success "IBC Link established"
+  else
+    log_error "Failed to link chains"
+    echo "$output" >&2
+    exit 1
+  fi
 
   # Determine channel on chain A
   local channel_a
   channel_a=$("$BINARY" q ibc channel channels --node "http://127.0.0.1:${RPC_A}" -o json | jq -r '.channels[0].channel_id')
   if [ -z "$channel_a" ] || [ "$channel_a" = "null" ]; then
-    echo "[error] could not determine IBC channel on chain A" >&2
+    log_error "could not determine IBC channel on chain A" >&2
     exit 1
   fi
+  log "Channel found: ${channel_a}"
 
   local recv_addr
   recv_addr=$("$BINARY" keys show "$USER_NAME" --keyring-backend "$KEYRING" --home "$HOME_B" -a)
 
-  log "Starting relayer (background)"
+  log_step "Starting relayer (background)"
   rly start "$path_name" >/dev/null 2>&1 &
   local rly_pid=$!
 
-  log "Sending ICS-20 transfer from chain A -> chain B via ${channel_a}"
+  log_step "Sending ICS-20 transfer from chain A -> chain B via ${channel_a}"
   # Workaround: Kudora does not currently support the relayer's balance/fee queries (it fails with
   # "unknown query path"). We still use the relayer to relay packets/acks, but submit the ICS-20
   # transfer with the chain CLI.
@@ -433,24 +475,25 @@ main() {
     --gas 200000 \
     --gas-prices "1000000000${DENOM}" \
     -y \
-    -o json)
+    -o json 2>/dev/null)
   local transfer_txhash
   transfer_txhash=$(echo "$transfer_out" | jq -r '.txhash // empty')
   if [ -z "$transfer_txhash" ]; then
-    echo "[error] failed to extract txhash from ibc-transfer tx output" >&2
-    echo "$transfer_out" | jq '.' >&2
+    log_error "failed to extract txhash from ibc-transfer tx output"
+    log_debug "$transfer_out"
     exit 1
   fi
   local transfer_code
   transfer_code=$(echo "$transfer_out" | jq -r '.code // 0')
   if [ "$transfer_code" != "0" ]; then
-    echo "[error] ibc-transfer tx rejected at broadcast" >&2
-    echo "$transfer_out" | jq '.' >&2
+    log_error "ibc-transfer tx rejected at broadcast"
+    log_debug "$transfer_out"
     exit 1
   fi
   # Wait for tx to be included
   local max_wait=30
   local waited=0
+  log "Waiting for transfer tx confirmation ($transfer_txhash)..."
   while [ $waited -lt $max_wait ]; do
     local tx_result
     tx_result=$("$BINARY" q tx "$transfer_txhash" --node "http://127.0.0.1:${RPC_A}" -o json 2>/dev/null || true)
@@ -458,10 +501,11 @@ main() {
       local code
       code=$(echo "$tx_result" | jq -r '.code // 1')
       if [ "$code" = "0" ]; then
+        log_success "Transfer tx confirmed"
         break
       else
-        echo "[error] ibc-transfer tx failed with code $code" >&2
-        echo "$tx_result" | jq '.' >&2
+        log_error "ibc-transfer tx failed with code $code"
+        log_debug "$tx_result"
         exit 1
       fi
     fi
@@ -469,33 +513,34 @@ main() {
     sleep 2
   done
   if [ $waited -ge $max_wait ]; then
-    echo "[error] ibc-transfer tx ${transfer_txhash} not confirmed after ${max_wait}s" >&2
+    log_error "ibc-transfer tx ${transfer_txhash} not confirmed after ${max_wait}s"
     exit 1
   fi
 
   # Give the relayer a moment, then force-flush remaining packets/acks
+  log "Flushing packets..."
   sleep 5
   rly tx flush "$path_name" "$channel_a" >/dev/null 2>&1 || true
 
-  log "Stopping relayer"
+  log_step "Stopping relayer"
   kill "$rly_pid" 2>/dev/null || true
   wait "$rly_pid" 2>/dev/null || true
 
-  log "Verifying receiver balance on chain B (looking for ibc/* denom)"
+  log_step "Verifying receiver balance on chain B"
   local balances
   balances=$("$BINARY" q bank balances "$recv_addr" --node "http://127.0.0.1:${RPC_B}" -o json)
 
   local ibc_coin
-  ibc_coin=$(echo "$balances" | jq -r '.balances[] | select(.denom|startswith("ibc/")) | "\(.amount)\t\(.denom)"' | head -n 1 || true)
+  ibc_coin=$(echo "$balances" | jq -r '.balances[] | select(.denom|startswith("ibc/")) | "\(.amount) \(.denom)"' | head -n 1 || true)
 
   if [ -z "$ibc_coin" ]; then
-    echo "[error] no ibc/* denom found in receiver balances" >&2
-    echo "$balances" | jq '.'
+    log_error "no ibc/* denom found in receiver balances"
+    log_debug "$balances"
     exit 1
   fi
 
-  log "IBC transfer received: $ibc_coin"
-  log "Success. Logs: $WORKDIR/chain-a.log, $WORKDIR/chain-b.log"
+  log_success "IBC transfer received: $ibc_coin"
+  log_success "Test complete. Logs available in: \n    $WORKDIR/chain-a.log\n    $WORKDIR/chain-b.log"
 }
 
 main "$@"
