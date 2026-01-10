@@ -95,6 +95,18 @@ func NewRootCmd() *cobra.Command {
 		moduleBasicManager[name] = module.CoreAppModuleBasicAdaptor(name, mod)
 		autoCliOpts.Modules[name] = mod
 	}
+	// Register IBC Middleware modules for CLI
+	pfmModules := app.RegisterPacketForward(clientCtx.Codec)
+	for name, mod := range pfmModules {
+		moduleBasicManager[name] = module.CoreAppModuleBasicAdaptor(name, mod)
+		autoCliOpts.Modules[name] = mod
+	}
+
+	rlModule := app.RegisterRateLimit(clientCtx.Codec)
+	for name, mod := range rlModule {
+		moduleBasicManager[name] = module.CoreAppModuleBasicAdaptor(name, mod)
+		autoCliOpts.Modules[name] = mod
+	}
 
 	moduleBasicManager[ibctransfertypes.ModuleName] = ibctransferevm.AppModuleBasic{
 		AppModuleBasic: &ibctransfer.AppModuleBasic{},

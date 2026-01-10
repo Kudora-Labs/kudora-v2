@@ -189,10 +189,10 @@ setup_chain() {
     $BINARY genesis collect-gentxs --home "$HOME_DIR" > /dev/null 2>&1
     
     # Configure fast block time for testing
-    sed -i'' -e 's/timeout_commit = ".*"/timeout_commit = "1s"/' "$HOME_DIR/config/config.toml"
+    sed -i.bak -e 's/timeout_commit = ".*"/timeout_commit = "1s"/' "$HOME_DIR/config/config.toml"
 
     # Allow zero-fee transactions so the node accepts our test requests
-    sed -i'' -e 's/minimum-gas-prices = ".*"/minimum-gas-prices = "0kud"/' "$HOME_DIR/config/app.toml"
+    sed -i.bak -e 's/minimum-gas-prices = ".*"/minimum-gas-prices = "0kud"/' "$HOME_DIR/config/app.toml"
     
     log_info "Chain setup complete"
     log_info "Validator address: $VALIDATOR_ADDR"
