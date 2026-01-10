@@ -73,9 +73,9 @@ import (
 	ibcexported "github.com/cosmos/ibc-go/v10/modules/core/exported"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	tokenfactorytypes "github.com/cosmos/tokenfactory/x/tokenfactory/types"
 	packetforwardtypes "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v10/packetforward/types"
 	ratelimittypes "github.com/cosmos/ibc-apps/modules/rate-limiting/v10/types"
+	tokenfactorytypes "github.com/cosmos/tokenfactory/x/tokenfactory/types"
 )
 
 var (
@@ -94,6 +94,7 @@ var (
 		{Account: feemarkettypes.ModuleName},
 		{Account: tokenfactorytypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: packetforwardtypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
+		{Account: ratelimittypes.ModuleName, Permissions: nil},
 		// blocked account addresses
 		{Account: wasmtypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}}}
 	blockAccAddrs = []string{
@@ -194,17 +195,15 @@ var (
 						ibcexported.ModuleName,
 						ibctransfertypes.ModuleName,
 						icatypes.ModuleName,
-						packetforwardtypes.ModuleName,
-    					ratelimittypes.ModuleName,
-						// chain modules
 						// cosmos evm modules
 						erc20types.ModuleName,
 						feemarkettypes.ModuleName,
 						evmtypes.ModuleName,
 						tokenfactorytypes.ModuleName,
-						// moved down because of evm modules
-						genutiltypes.ModuleName,
+						packetforwardtypes.ModuleName,
+    					ratelimittypes.ModuleName,
 						wasmtypes.ModuleName,
+						genutiltypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
 					},
 				}),
