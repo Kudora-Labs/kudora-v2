@@ -16,7 +16,6 @@ import (
 	authtxconfig "github.com/cosmos/cosmos-sdk/x/auth/tx/config"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	cosmosevmkeyring "github.com/cosmos/evm/crypto/keyring"
-	ibctransferevm "github.com/cosmos/evm/x/ibc/transfer"
 	ibctransfer "github.com/cosmos/ibc-go/v10/modules/apps/transfer"
 	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 	"github.com/spf13/cobra"
@@ -108,9 +107,7 @@ func NewRootCmd() *cobra.Command {
 		autoCliOpts.Modules[name] = mod
 	}
 
-	moduleBasicManager[ibctransfertypes.ModuleName] = ibctransferevm.AppModuleBasic{
-		AppModuleBasic: &ibctransfer.AppModuleBasic{},
-	}
+	moduleBasicManager[ibctransfertypes.ModuleName] = ibctransfer.AppModuleBasic{}
 
 	initRootCmd(rootCmd, clientCtx.TxConfig, moduleBasicManager)
 

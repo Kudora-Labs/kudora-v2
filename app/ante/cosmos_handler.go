@@ -14,36 +14,39 @@ import (
 
 // NewCosmosAnteHandler creates the ante chain for non-EVM transactions, enriched with WASM decorators.
 func NewCosmosAnteHandler(options HandlerOptions) sdk.AnteHandler {
-	decorators := []sdk.AnteDecorator{
-		cosmosante.NewRejectMessagesDecorator(),
-		cosmosante.NewAuthzLimiterDecorator(
-			sdk.MsgTypeURL(&evmtypes.MsgEthereumTx{}),
-			sdk.MsgTypeURL(&sdkvesting.MsgCreateVestingAccount{}),
-		),
-		ante.NewSetUpContextDecorator(),
+	return func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+		feemarketParams := options.FeeMarketKeeper.GetParams(ctx)
+		txFeeChecker := evmante.NewDynamicFeeChecker(&feemarketParams)
+
+		decorators := []sdk.AnteDecorator{
+			cosmosante.NewRejectMessagesDecorator(),
+			cosmosante.NewAuthzLimiterDecorator(
+				sdk.MsgTypeURL(&evmtypes.MsgEthereumTx{}),
+				sdk.MsgTypeURL(&sdkvesting.MsgCreateVestingAccount{}),
+			),
+			ante.NewSetUpContextDecorator(),
+		}
+
+		decorators = append(decorators, wasmDecorators(options)...)
+
+		decorators = append(decorators,
+			circuitante.NewCircuitBreakerDecorator(options.CircuitKeeper),
+			ante.NewExtensionOptionsDecorator(options.ExtensionOptionChecker),
+			ante.NewValidateBasicDecorator(),
+			ante.NewTxTimeoutHeightDecorator(),
+			ante.NewValidateMemoDecorator(options.AccountKeeper),
+			cosmosante.NewMinGasPriceDecorator(&feemarketParams),
+			ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper),
+			ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, txFeeChecker),
+			ante.NewSetPubKeyDecorator(options.AccountKeeper),
+			ante.NewValidateSigCountDecorator(options.AccountKeeper),
+			ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SignatureGasConsumer),
+			ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
+			ante.NewIncrementSequenceDecorator(options.AccountKeeper),
+			ibcante.NewRedundantRelayDecorator(options.IBCKeeper),
+			evmante.NewGasWantedDecorator(options.EvmKeeper, options.FeeMarketKeeper, &feemarketParams),
+		)
+
+		return sdk.ChainAnteDecorators(decorators...)(ctx, tx, simulate)
 	}
-
-	// WASM-specific decorators first so simulation limits and gas bookkeeping run early.
-	decorators = append(decorators, wasmDecorators(options)...)
-
-	// Core ante flow.
-	decorators = append(decorators,
-		circuitante.NewCircuitBreakerDecorator(options.CircuitKeeper),
-		ante.NewExtensionOptionsDecorator(options.ExtensionOptionChecker),
-		ante.NewValidateBasicDecorator(),
-		ante.NewTxTimeoutHeightDecorator(),
-		ante.NewValidateMemoDecorator(options.AccountKeeper),
-		cosmosante.NewMinGasPriceDecorator(options.FeeMarketKeeper, options.EvmKeeper),
-		ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper),
-		ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker),
-		ante.NewSetPubKeyDecorator(options.AccountKeeper),
-		ante.NewValidateSigCountDecorator(options.AccountKeeper),
-		ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SignatureGasConsumer),
-		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
-		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
-		ibcante.NewRedundantRelayDecorator(options.IBCKeeper),
-		evmante.NewGasWantedDecorator(options.EvmKeeper, options.FeeMarketKeeper),
-	)
-
-	return sdk.ChainAnteDecorators(decorators...)
 }

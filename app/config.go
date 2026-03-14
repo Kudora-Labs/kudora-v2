@@ -101,7 +101,7 @@ var ChainsCoinInfo = map[string]evmtypes.EvmCoinInfo{
 		Denom:         BaseDenom,
 		ExtendedDenom: BaseDenom,
 		DisplayDenom:  DisplayDenom,
-		Decimals:      evmtypes.EighteenDecimals,
+		Decimals:      uint32(evmtypes.EighteenDecimals),
 	},
 	// Configuration for chain ID without revision suffix
 	// This allows lookup by just "kudora_12000"
@@ -109,14 +109,14 @@ var ChainsCoinInfo = map[string]evmtypes.EvmCoinInfo{
 		Denom:         BaseDenom,
 		ExtendedDenom: BaseDenom,
 		DisplayDenom:  DisplayDenom,
-		Decimals:      evmtypes.EighteenDecimals,
+		Decimals:      uint32(evmtypes.EighteenDecimals),
 	},
 	// Configuration for local development
 	"kudora_9000-1": {
 		Denom:         BaseDenom,
 		ExtendedDenom: BaseDenom,
 		DisplayDenom:  DisplayDenom,
-		Decimals:      evmtypes.EighteenDecimals,
+		Decimals:      uint32(evmtypes.EighteenDecimals),
 	},
 }
 
@@ -179,20 +179,11 @@ func initEVM(chainID string) error {
 		return fmt.Errorf("failed to set base denom: %w", err)
 	}
 
-	// Get the default Ethereum chain configuration (expects uint64 EVM chain id)
-	evmChainID, err := parseEVMChainID(chainID)
-	if err != nil {
-		return fmt.Errorf("failed to parse evm chain id from %q: %w", chainID, err)
-	}
-	ethCfg := evmtypes.DefaultChainConfig(evmChainID)
-
 	cfg := evmtypes.NewEVMConfigurator().
-		WithChainConfig(ethCfg).
 		WithEVMCoinInfo(coinInfo)
 
 	// Configure the EVM with our settings
-	err = cfg.Configure()
-	if err != nil {
+	if err := cfg.Configure(); err != nil {
 		return fmt.Errorf("failed to configure EVM: %w", err)
 	}
 

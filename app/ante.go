@@ -29,9 +29,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 	if options.ExtensionOptionChecker == nil {
 		return nil, errors.New("extension option checker is required for ante builder")
 	}
-	if options.TxFeeChecker == nil {
-		return nil, errors.New("tx fee checker is required for ante builder")
-	}
 	if options.SignatureGasConsumer == nil {
 		return nil, errors.New("sig gas consumer is required for ante builder")
 	}

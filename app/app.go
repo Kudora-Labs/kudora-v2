@@ -49,23 +49,21 @@ import (
 	evmmempool "github.com/cosmos/evm/mempool"
 	erc20keeper "github.com/cosmos/evm/x/erc20/keeper"
 	feemarketkeeper "github.com/cosmos/evm/x/feemarket/keeper"
-	ibctransferkeeper "github.com/cosmos/evm/x/ibc/transfer/keeper"
 	evmkeeper "github.com/cosmos/evm/x/vm/keeper"
 	icacontrollerkeeper "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/controller/keeper"
 	icahostkeeper "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/host/keeper"
+	ibctransferkeeper "github.com/cosmos/ibc-go/v10/modules/apps/transfer/keeper"
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native"
 
 	tokenfactorykeeper "github.com/cosmos/tokenfactory/x/tokenfactory/keeper"
 
-	
 	// Packet Forward Middleware
 	packetforwardkeeper "github.com/cosmos/ibc-apps/middleware/packet-forward-middleware/v10/packetforward/keeper"
-    
-    // Rate Limiting (native in ibc-go v10)
-	ratelimitkeeper "github.com/cosmos/ibc-apps/modules/rate-limiting/v10/keeper"
 
+	// Rate Limiting (native in ibc-go v10)
+	ratelimitkeeper "github.com/cosmos/ibc-apps/modules/rate-limiting/v10/keeper"
 
 	"kudora/docs"
 )
@@ -134,7 +132,6 @@ type App struct {
 	Erc20Keeper        erc20keeper.Keeper
 	EVMMempool         *evmmempool.ExperimentalEVMMempool
 	WasmKeeper         wasmkeeper.Keeper
-
 }
 
 func init() {
@@ -210,7 +207,7 @@ func New(
 		&app.AuthzKeeper,
 		&app.ConsensusParamsKeeper,
 		&app.CircuitBreakerKeeper,
-		&app.ParamsKeeper, 
+		&app.ParamsKeeper,
 		&app.FeeGrantKeeper,
 	); err != nil {
 		panic(err)
