@@ -16,9 +16,8 @@ import (
 	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	evmante "github.com/cosmos/evm/ante"
-	evmdecorators "github.com/cosmos/evm/ante/evm"
+	evmantetypes "github.com/cosmos/evm/ante/types"
 	srvflags "github.com/cosmos/evm/server/flags"
-	evmtypes "github.com/cosmos/evm/types"
 	"github.com/cosmos/gogoproto/proto"
 	porttypes "github.com/cosmos/ibc-go/v10/modules/core/05-port/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -143,13 +142,12 @@ func (app *App) setAnteHandler(appOpts servertypes.AppOptions, txConfig client.T
 			BankKeeper:             app.BankKeeper,
 			SignModeHandler:        txConfig.SignModeHandler(),
 			FeegrantKeeper:         app.FeeGrantKeeper,
-			ExtensionOptionChecker: evmtypes.HasDynamicFeeExtensionOption,
+			ExtensionOptionChecker: evmantetypes.HasDynamicFeeExtensionOption,
 			SignatureGasConsumer:   evmante.SigVerificationGasConsumer,
 			Cdc:                    app.appCodec,
 			EvmKeeper:              app.EVMKeeper,
 			FeeMarketKeeper:        app.FeeMarketKeeper,
 			MaxTxGasWanted:         maxGasWanted,
-			TxFeeChecker:           evmdecorators.NewDynamicFeeChecker(app.FeeMarketKeeper),
 			PendingTxListener: func(hash common.Hash) {
 				for _, listener := range app.pendingTxListeners {
 					listener(hash)

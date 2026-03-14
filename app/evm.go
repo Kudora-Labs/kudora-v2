@@ -21,11 +21,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/spf13/cast"
 
-	evmconfig "github.com/cosmos/evm/config"
 	evmmempool "github.com/cosmos/evm/mempool"
 	"github.com/cosmos/evm/precompiles/bech32"
 	"github.com/cosmos/evm/precompiles/p256"
@@ -52,16 +52,15 @@ func (app *App) registerEVMModules(appOpts servertypes.AppOptions) error {
 			Denom:         sdk.DefaultBondDenom,
 			ExtendedDenom: BaseDenom,
 			DisplayDenom:  sdk.DefaultBondDenom,
-			Decimals:      evmtypes.Decimals(evmtypes.DefaultEVMDecimals),
+			Decimals:      uint32(evmtypes.DefaultEVMDecimals),
 		},
 	}
 
 	// configure evm modules
-	if err := evmconfig.EvmAppOptionsWithConfig(
-		chainID,
-		coinInfoMap,
-		getCustomEVMActivators(),
-	); err != nil {
+	if err := evmtypes.NewEVMConfigurator().
+		WithEVMCoinInfo(coinInfoMap[chainID]).
+		WithExtendedEips(getCustomEVMActivators()).
+		Configure(); err != nil {
 		return err
 	}
 
@@ -99,6 +98,7 @@ func (app *App) registerEVMModules(appOpts servertypes.AppOptions) error {
 		app.FeeMarketKeeper,
 		&app.ConsensusParamsKeeper,
 		&app.Erc20Keeper,
+		chainID,
 		tracer,
 	)
 
@@ -115,7 +115,7 @@ func (app *App) registerEVMModules(appOpts servertypes.AppOptions) error {
 
 	// register evm modules
 	if err := app.RegisterModules(
-		vm.NewAppModule(app.EVMKeeper, app.AuthKeeper, app.AuthKeeper.AddressCodec()),
+		vm.NewAppModule(app.EVMKeeper, app.AuthKeeper, app.BankKeeper, app.AuthKeeper.AddressCodec()),
 		feemarket.NewAppModule(app.FeeMarketKeeper),
 		erc20.NewAppModule(app.Erc20Keeper, app.AuthKeeper),
 	); err != nil {
@@ -156,7 +156,7 @@ func (app *App) setEVMMempool() {
 			BlockGasLimit: 100_000_000,
 		}
 
-		evmMempool := evmmempool.NewExperimentalEVMMempool(app.CreateQueryContext, app.Logger(), app.EVMKeeper, app.FeeMarketKeeper, app.txConfig, app.clientCtx, mempoolConfig)
+		evmMempool := evmmempool.NewExperimentalEVMMempool(app.CreateQueryContext, app.Logger(), app.EVMKeeper, app.FeeMarketKeeper, app.txConfig, app.clientCtx, mempoolConfig, 0)
 		app.EVMMempool = evmMempool
 
 		app.SetMempool(evmMempool)
@@ -256,7 +256,7 @@ func cosmosChainIDToEVMChainID(chainID string) uint64 {
 // This needs to be removed after EVM supports App Wiring.
 func RegisterEVM(cdc codec.Codec, interfaceRegistry codectypes.InterfaceRegistry) map[string]appmodule.AppModule {
 	modules := map[string]appmodule.AppModule{
-		evmtypes.ModuleName:       vm.NewAppModule(nil, authkeeper.AccountKeeper{}, interfaceRegistry.SigningContext().AddressCodec()),
+		evmtypes.ModuleName:       vm.NewAppModule(nil, authkeeper.AccountKeeper{}, bankkeeper.BaseKeeper{}, interfaceRegistry.SigningContext().AddressCodec()),
 		erc20types.ModuleName:     erc20.NewAppModule(erc20keeper.Keeper{}, authkeeper.AccountKeeper{}),
 		feemarkettypes.ModuleName: feemarket.NewAppModule(feemarketkeeper.Keeper{}),
 	}
