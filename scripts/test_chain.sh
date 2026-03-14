@@ -30,12 +30,13 @@ CHAIN_ID="kudora_12000-1"
 HOME_DIR="$HOME/.kudora"
 BINARY_SOURCE="${KUDORA_TEST_BINARY:-$DEFAULT_BINARY_SOURCE}"
 BINARY="$BINARY_LINK"
+IGNITE_CONFIG="$REPO_ROOT/config.yml"
 DENOM="kud"
 KEYRING="test"
 
-# Test accounts
-VALIDATOR_NAME="validator"
-USER_NAME="testuser"
+# Test accounts provisioned by Ignite config
+VALIDATOR_NAME="alice"
+USER_NAME="charlie"
 
 # Ports
 RPC_PORT=26657
@@ -89,9 +90,14 @@ ensure_test_binary() {
 
 cleanup() {
     log_info "Cleaning up..."
-    pkill -f "kudorad start" 2>/dev/null || true
+    stop_running_node
     sleep 1
     rm -rf "$HOME_DIR"
+}
+
+stop_running_node() {
+    pkill -f "$BINARY start" 2>/dev/null || true
+    pkill -f "kudorad start" 2>/dev/null || true
 }
 
 wait_for_node() {
@@ -168,88 +174,26 @@ ensure_tokenfactory_wasm_artifact() {
 
 setup_chain() {
     log_info "Setting up test chain..."
+
+    stop_running_node
     
     # Clean previous test data
     rm -rf "$HOME_DIR"
-    
-    # Initialize chain
-    $BINARY init test-node \
-        --chain-id "$CHAIN_ID" \
-        --default-denom "$DENOM" \
+
+    # Initialize the development chain from Ignite config so genesis, accounts,
+    # validator self-delegation, and module parameters all come from config.yml.
+    ignite chain init \
+        --config "$IGNITE_CONFIG" \
+        --path "$REPO_ROOT" \
         --home "$HOME_DIR" \
-        > /dev/null 2>&1
-    
-    # Create validator account
-    $BINARY keys add "$VALIDATOR_NAME" \
-        --keyring-backend "$KEYRING" \
-        --home "$HOME_DIR" \
-        > /dev/null 2>&1
-    
-    # Create test user account
-    $BINARY keys add "$USER_NAME" \
-        --keyring-backend "$KEYRING" \
-        --home "$HOME_DIR" \
+        --skip-proto \
+        -y \
         > /dev/null 2>&1
     
     # Get addresses
     VALIDATOR_ADDR=$($BINARY keys show "$VALIDATOR_NAME" --keyring-backend "$KEYRING" --home "$HOME_DIR" -a)
     USER_ADDR=$($BINARY keys show "$USER_NAME" --keyring-backend "$KEYRING" --home "$HOME_DIR" -a)
     VALIDATOR_VAL_ADDR=$($BINARY keys show "$VALIDATOR_NAME" --keyring-backend "$KEYRING" --home "$HOME_DIR" --bech val -a)
-    
-    # Add genesis accounts
-    # Validator: 1,000,000 kudos
-    $BINARY genesis add-genesis-account "$VALIDATOR_ADDR" \
-        1000000000000000000000000${DENOM} \
-        --home "$HOME_DIR"
-    
-    # Test user: 100,000 kudos
-    $BINARY genesis add-genesis-account "$USER_ADDR" \
-        100000000000000000000000${DENOM} \
-        --home "$HOME_DIR"
-    
-    # Create genesis transaction
-    $BINARY genesis gentx "$VALIDATOR_NAME" \
-        100000000000000000000000${DENOM} \
-        --chain-id "$CHAIN_ID" \
-        --keyring-backend "$KEYRING" \
-        --home "$HOME_DIR" \
-        > /dev/null 2>&1
-    
-    # Collect genesis transactions
-    $BINARY genesis collect-gentxs --home "$HOME_DIR" > /dev/null 2>&1
-
-    # test_chain.sh initializes genesis via raw kudorad commands, not Ignite,
-    # so config.yml overrides are not applied here and must be mirrored.
-    tmp=$(mktemp)
-    jq '.app_state.bank.denom_metadata = [{
-        "description": "Kudora native token",
-        "denom_units": [
-            {"denom": "kud", "exponent": 0, "aliases": []},
-            {"denom": "kudos", "exponent": 18, "aliases": []}
-        ],
-        "base": "kud",
-        "display": "kudos",
-        "name": "Kudora",
-        "symbol": "KUD"
-    }] |
-    .app_state.evm.params.evm_denom = "kud" |
-    .app_state.evm.params.extended_denom_options.extended_denom = "kud" |
-    .app_state.evm.params.active_static_precompiles = [
-        "0x0000000000000000000000000000000000000100",
-        "0x0000000000000000000000000000000000000400",
-        "0x0000000000000000000000000000000000000800",
-        "0x0000000000000000000000000000000000000801",
-        "0x0000000000000000000000000000000000000802",
-        "0x0000000000000000000000000000000000000804",
-        "0x0000000000000000000000000000000000000805",
-        "0x0000000000000000000000000000000000000806"
-    ]' "$HOME_DIR/config/genesis.json" > "$tmp" && mv "$tmp" "$HOME_DIR/config/genesis.json"
-
-    # Configure fast block time for testing
-    sed -i.bak -e 's/timeout_commit = ".*"/timeout_commit = "1s"/' "$HOME_DIR/config/config.toml"
-
-    # Allow zero-fee transactions so the node accepts our test requests
-    sed -i.bak -e 's/minimum-gas-prices = ".*"/minimum-gas-prices = "0kud"/' "$HOME_DIR/config/app.toml"
     
     log_info "Chain setup complete"
     log_info "Validator address: $VALIDATOR_ADDR"
@@ -452,8 +396,9 @@ test_rest_api() {
     
     local response=$(curl -s "http://localhost:$REST_PORT/cosmos/base/tendermint/v1beta1/node_info")
     local moniker=$(echo "$response" | jq -r '.default_node_info.moniker')
+    local network=$(echo "$response" | jq -r '.default_node_info.network')
     
-    if [ "$moniker" == "test-node" ]; then
+    if [ -n "$moniker" ] && [ "$moniker" != "null" ] && [ "$network" == "$CHAIN_ID" ]; then
         log_success "REST API accessible, node moniker: $moniker"
     else
         log_fail "REST API returned unexpected response"
