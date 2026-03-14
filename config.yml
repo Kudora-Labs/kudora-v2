@@ -25,6 +25,34 @@ client:
   #   path: docs/static/openapi.json
 genesis:
   app_state:
+    bank:
+      denom_metadata:
+        - description: Kudora native token
+          denom_units:
+            - denom: kud
+              exponent: 0
+              aliases: []
+            - denom: kudos
+              exponent: 18
+              aliases: []
+          base: kud
+          display: kudos
+          name: Kudora
+          symbol: KUD
+    evm:
+      params:
+        evm_denom: kud
+        extended_denom_options:
+          extended_denom: kud
+        active_static_precompiles:
+          - "0x0000000000000000000000000000000000000100"
+          - "0x0000000000000000000000000000000000000400"
+          - "0x0000000000000000000000000000000000000800"
+          - "0x0000000000000000000000000000000000000801"
+          - "0x0000000000000000000000000000000000000802"
+          - "0x0000000000000000000000000000000000000804"
+          - "0x0000000000000000000000000000000000000805"
+          - "0x0000000000000000000000000000000000000806"
     feemarket:
       params:
         no_base_fee: true

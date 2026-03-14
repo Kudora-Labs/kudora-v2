@@ -119,6 +119,7 @@ var (
 					PreBlockers: []string{
 						upgradetypes.ModuleName,
 						authtypes.ModuleName,
+						evmtypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/preBlockers
 					},
 					// During begin block slashing happens after distr.BeginBlocker so that

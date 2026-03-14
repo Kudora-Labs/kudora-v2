@@ -255,7 +255,11 @@ func New(
 		if err := app.UpgradeKeeper.SetModuleVersionMap(ctx, app.ModuleManager.GetVersionMap()); err != nil {
 			return nil, err
 		}
-		return app.App.InitChainer(ctx, req)
+		resp, err := app.App.InitChainer(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return resp, nil
 	})
 
 	app.setEVMMempool()
